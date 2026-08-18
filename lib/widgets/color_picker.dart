@@ -184,17 +184,19 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
   @override
   void initState() {
     super.initState();
-    _red = widget.initialColor.r * 255;
-    _green = widget.initialColor.g * 255;
-    _blue = widget.initialColor.b * 255;
-    _alpha = widget.initialColor.a * 255;
+    // Correction de compatibilité Flutter 3.24.0 (utilisation de .red, .green, .blue, .alpha)
+    _red = widget.initialColor.red.toDouble();
+    _green = widget.initialColor.green.toDouble();
+    _blue = widget.initialColor.blue.toDouble();
+    _alpha = widget.initialColor.alpha.toDouble();
   }
 
-  Color get _currentColor => Color.from(
-        alpha: _alpha / 255,
-        red: _red / 255,
-        green: _green / 255,
-        blue: _blue / 255,
+  // Correction de compatibilité Flutter 3.24.0 (utilisation de Color.fromARGB)
+  Color get _currentColor => Color.fromARGB(
+        _alpha.round(),
+        _red.round(),
+        _green.round(),
+        _blue.round(),
       );
 
   @override
