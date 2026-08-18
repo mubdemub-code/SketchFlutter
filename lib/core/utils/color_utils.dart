@@ -40,10 +40,11 @@ class ColorUtils {
 
   /// Convertit un objet [Color] en chaîne hexadécimale au format #AARRGGBB.
   static String colorToHex(Color color) {
-    final alpha = (color.a * 255).round();
-    final red = (color.r * 255).round();
-    final green = (color.g * 255).round();
-    final blue = (color.b * 255).round();
+    // Modification pour compatibilité Flutter 3.24.0 (obtention des entiers 0-255)
+    final alpha = color.alpha;
+    final red = color.red;
+    final green = color.green;
+    final blue = color.blue;
     return '#${_toTwoDigitHex(alpha)}${_toTwoDigitHex(red)}${_toTwoDigitHex(green)}${_toTwoDigitHex(blue)}';
   }
 
