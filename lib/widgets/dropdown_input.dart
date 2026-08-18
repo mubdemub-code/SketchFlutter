@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 /// Widget de liste déroulante générique.
@@ -118,7 +119,7 @@ class _DropdownInputState<T> extends State<DropdownInput<T>> {
             ),
           ),
         DropdownButtonFormField<T>(
-          initialValue: widget.value,
+          value: widget.value,
           items: _buildItems(),
           onChanged: widget.onChanged,
           decoration: InputDecoration(
