@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants/app_colors.dart';
 import '../core/constants/app_strings.dart';
 import '../models/project_metadata.dart';
+import '../models/project_model.dart';
 import '../providers/project_provider.dart';
 import '../widgets/project_card.dart';
 import 'editor_screen.dart';
@@ -96,7 +98,8 @@ class ProjectListScreen extends ConsumerWidget {
             );
           }
         });
-      } catch (e) {
+      } catch (e, stack) {
+        debugPrint('Erreur création projet: $e\n$stack');
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Erreur : $e')),
@@ -112,6 +115,13 @@ class ProjectListScreen extends ConsumerWidget {
     WidgetRef ref,
     ProjectMetadata project,
   ) async {
+    final projectId = project.projectId;
+    if (projectId == null) {
+      debugPrint('Tentative de suppression avec projectId null');
+      _showError(context, 'Identifiant de projet invalide');
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -135,29 +145,38 @@ class ProjectListScreen extends ConsumerWidget {
 
     if (confirmed == true) {
       try {
-        await ref.read(deleteProjectAction(project.projectId!).future);
+        await ref.read(deleteProjectAction(projectId).future);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Projet supprimé')),
           );
         }
-      } catch (e) {
+      } catch (e, stack) {
+        debugPrint('Erreur suppression projet: $e\n$stack');
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur : $e')),
-          );
+          _showError(context, 'Erreur : $e');
         }
       }
     }
   }
 
   /// Ouvre un projet : charge le projet et navigue vers l'éditeur.
+  /// Cette version est renforcée avec des vérifications et des fallbacks.
   Future<void> _openProject(
     BuildContext context,
     WidgetRef ref,
-    String projectId,
+    String? projectId,
   ) async {
-    // Afficher un indicateur de chargement.
+    // Vérification immédiate de l'ID
+    if (projectId == null || projectId.isEmpty) {
+      debugPrint('Erreur : projectId null ou vide');
+      _showError(context, 'Identifiant de projet invalide');
+      return;
+    }
+
+    debugPrint('Ouverture du projet: $projectId');
+
+    // Afficher un indicateur de chargement
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -167,18 +186,44 @@ class ProjectListScreen extends ConsumerWidget {
     );
 
     try {
+      // Tentative via l'action Riverpod
       await ref.read(openProjectAction(projectId).future);
+
+      // Vérification que le projet actif a bien été défini
+      final activeProject = ref.read(activeProjectProvider);
+      if (activeProject == null) {
+        debugPrint("L'action openProjectAction n'a pas défini le projet actif. Tentative de chargement direct...");
+        // Fallback : charger directement depuis le stockage
+        final storage = ref.read(projectStorageProvider);
+        final project = await storage.loadProject(projectId);
+        if (project == null) {
+          throw Exception('Projet introuvable après chargement direct');
+        }
+        // Mettre à jour le provider
+        ref.read(activeProjectProvider.notifier).state = project;
+        debugPrint('Projet chargé via fallback: ${project.metadata.name}');
+      } else {
+        debugPrint('Projet actif défini: ${activeProject.metadata.name}');
+      }
+
       if (!context.mounted) return;
-      Navigator.of(context).pop(); // Fermer le dialogue
-      Navigator.of(context).push(
+
+      // Fermer le dialogue de chargement
+      Navigator.of(context).pop();
+
+      // Naviguer vers l'éditeur
+      await Navigator.of(context).push(
         MaterialPageRoute(builder: (context) => const EditorScreen()),
       );
-    } catch (e) {
+      debugPrint('Navigation vers EditorScreen réussie');
+    } catch (e, stack) {
+      debugPrint('Erreur ouverture projet: $e\n$stack');
       if (!context.mounted) return;
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de l\'ouverture : $e')),
-      );
+      // Fermer le dialogue s'il est encore ouvert
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      _showError(context, 'Erreur lors de l\'ouverture : $e');
     }
   }
 
@@ -188,6 +233,12 @@ class ProjectListScreen extends ConsumerWidget {
     WidgetRef ref,
     ProjectMetadata project,
   ) async {
+    final projectId = project.projectId;
+    if (projectId == null) {
+      _showError(context, 'Identifiant de projet invalide');
+      return;
+    }
+
     final controller = TextEditingController(text: project.name);
     final result = await showDialog<bool>(
       context: context,
@@ -220,30 +271,38 @@ class ProjectListScreen extends ConsumerWidget {
     );
 
     if (result == true && controller.text.trim().isNotEmpty) {
-      // Récupérer le projet complet, modifier le nom, et sauvegarder.
-      final storage = ref.read(projectStorageProvider);
-      final fullProject = await storage.loadProject(project.projectId!);
-      if (fullProject == null) {
+      try {
+        final storage = ref.read(projectStorageProvider);
+        final fullProject = await storage.loadProject(projectId);
+        if (fullProject == null) {
+          throw Exception('Projet introuvable');
+        }
+        final updatedProject = fullProject.copyWith(
+          metadata: fullProject.metadata.copyWith(
+            name: controller.text.trim(),
+            updatedAt: DateTime.now().toUtc(),
+          ),
+        );
+        await ref.read(saveActiveProjectAction(updatedProject).future);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Projet introuvable')),
+            const SnackBar(content: Text('Projet renommé')),
           );
         }
-        return;
-      }
-      final updatedProject = fullProject.copyWith(
-        metadata: fullProject.metadata.copyWith(
-          name: controller.text.trim(),
-          updatedAt: DateTime.now().toUtc(),
-        ),
-      );
-      await ref.read(saveActiveProjectAction(updatedProject).future);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Projet renommé')),
-        );
+      } catch (e, stack) {
+        debugPrint('Erreur renommage: $e\n$stack');
+        if (context.mounted) {
+          _showError(context, 'Erreur : $e');
+        }
       }
     }
+  }
+
+  /// Affiche un message d'erreur via SnackBar.
+  void _showError(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
   }
 
   @override
@@ -277,24 +336,27 @@ class ProjectListScreen extends ConsumerWidget {
       ),
       body: projectsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: AppColors.error),
-              const SizedBox(height: 16),
-              Text(
-                'Erreur lors du chargement : $err',
-                style: const TextStyle(color: AppColors.error),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => ref.invalidate(projectListProvider),
-                child: const Text(AppStrings.retry),
-              ),
-            ],
-          ),
-        ),
+        error: (err, stack) {
+          debugPrint('Erreur chargement liste projets: $err\n$stack');
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                const SizedBox(height: 16),
+                Text(
+                  'Erreur lors du chargement : $err',
+                  style: const TextStyle(color: AppColors.error),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => ref.invalidate(projectListProvider),
+                  child: const Text(AppStrings.retry),
+                ),
+              ],
+            ),
+          );
+        },
         data: (projects) {
           if (projects.isEmpty) {
             return _buildEmptyState(context);
@@ -310,9 +372,13 @@ class ProjectListScreen extends ConsumerWidget {
             itemCount: projects.length,
             itemBuilder: (context, index) {
               final project = projects[index];
+              // Vérification de l'ID avant de construire la carte
+              if (project.projectId == null) {
+                debugPrint('Projet avec projectId null détecté dans la liste: ${project.name}');
+              }
               return ProjectCard(
                 metadata: project,
-                onTap: () => _openProject(context, ref, project.projectId!),
+                onTap: () => _openProject(context, ref, project.projectId),
                 onRename: () => _showRenameProjectDialog(context, ref, project),
                 onDuplicate: () {
                   // TODO: Dupliquer le projet
