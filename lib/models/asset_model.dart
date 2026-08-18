@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../core/errors/validation_error.dart';
 import '../core/utils/json_utils.dart';
 import '../core/utils/uuid_generator.dart';
