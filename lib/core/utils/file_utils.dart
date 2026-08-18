@@ -125,7 +125,7 @@ class FileUtils {
     bool pretty = false,
     bool createDirectories = true,
   }) async {
-    const encoder = JsonEncoder.withIndent(pretty ? '  ' : null);
+    final encoder = JsonEncoder.withIndent(pretty ? '  ' : null);
     final String jsonString = encoder.convert(data);
     return await writeTextFile(
       path,
