@@ -8,7 +8,9 @@ plugins {
 android {
     namespace = "com.sketchide"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    
+    // Forcer la version du NDK requise par vos dépendances
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
