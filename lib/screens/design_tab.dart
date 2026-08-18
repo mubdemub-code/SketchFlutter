@@ -187,7 +187,7 @@ class DesignTab extends ConsumerWidget {
     }
 
     // Construire l'aperçu à l'aide du parseur.
-    final parser = JsonWidgetParser();
+    final parser = JsonWidgetParser(context: context);
     Widget previewWidget;
     if (rootWidget != null) {
       previewWidget = parser.buildWidget(rootWidget, context);
