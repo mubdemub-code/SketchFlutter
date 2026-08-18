@@ -1,0 +1,25 @@
+import 'package:flutter/material.dart';
+
+import '../../../models/logic_block.dart';
+import '../../../models/project_model.dart';
+
+class NavigateBlock {
+  static void execute(LogicBlock block, ProjectModel project, BuildContext context) {
+    final pageId = block.getStringParameter('page_id') ?? '';
+    if (pageId.isEmpty) return;
+
+    final page = project.getPageById(pageId);
+    if (page == null) return;
+
+    // Construire la page cible avec le même moteur de rendu.
+    // Pour simplifier, on navigue vers un widget de placeholder qui affichera
+    // la page via le parseur. On suppose que le parser sera appelé dans le
+    // widget cible. Ici, on peut utiliser un callback ou un widget dédié.
+    // Pour l'instant, on affiche un SnackBar indiquant la navigation.
+    // (L'implémentation complète nécessiterait de pousser un nouvel écran
+    // avec le JsonWidgetParser et la page cible.)
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Navigation vers ${page.name}')),
+    );
+  }
+}

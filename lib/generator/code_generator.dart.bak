@@ -1,0 +1,66 @@
+import 'dart:io';
+
+import '../core/constants/schema_versions.dart';
+import '../models/asset_model.dart';
+import '../models/dependencies.dart';
+import '../models/logic_block.dart';
+import '../models/page_model.dart';
+import '../models/project_model.dart';
+import '../models/widget_node.dart';
+import '../models/variable.dart';
+import '../models/custom_code.dart';
+import '../models/generation_settings.dart';
+import '../models/project_metadata.dart';
+import '../models/navigation_model.dart';
+import 'pubspec_generator.dart';
+import 'project_to_dart.dart';
+
+/// Interface de génération de code source.
+/// (Normalement importée de compile_service, mais définie ici pour l'autonomie)
+abstract class IProjectCodeGenerator {
+  Map<String, String> generate(ProjectModel project);
+}
+
+/// Générateur de code principal.
+///
+/// Transforme un [ProjectModel] en un ensemble de fichiers source Flutter
+/// (pubspec.yaml, lib/main.dart, lib/pages/*.dart, fichiers personnalisés).
+/// Il s'appuie sur [PubspecGenerator] et [ProjectToDart] pour les conversions.
+class CodeGenerator implements IProjectCodeGenerator {
+  @override
+  Map<String, String> generate(ProjectModel project) {
+    final files = <String, String>{};
+
+    // 1. Générer pubspec.yaml
+    files['pubspec.yaml'] = PubspecGenerator.generate(project);
+
+    // 2. Générer le fichier main.dart
+    files['lib/main.dart'] = ProjectToDart.generateMain(project);
+
+    // 3. Générer un fichier par page
+    for (final page in project.pages) {
+      final pageFileName = _toSnakeCase(page.name);
+      files['lib/pages/${pageFileName}_page.dart'] =
+          ProjectToDart.generatePage(project, page);
+    }
+
+    // 4. Ajouter les fichiers Dart personnalisés (si présents)
+    if (project.customCode.additionalFiles != null) {
+      project.customCode.additionalFiles!.forEach((path, content) {
+        files[path] = content;
+      });
+    }
+
+    return files;
+  }
+
+  /// Convertit un nom en snake_case (minuscules, underscores).
+  String _toSnakeCase(String input) {
+    return input
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+  }
+}

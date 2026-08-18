@@ -1,0 +1,863 @@
+import '../models/logic_block.dart';
+import '../models/page_model.dart';
+import '../models/project_model.dart';
+import '../models/widget_node.dart';
+import '../models/variable.dart';
+import 'logic_code_generators/code_block_generator.dart';
+
+/// Générateur de code Dart complet, gérant l'état, les événements et la navigation.
+///
+/// Cette version produit un code Flutter autonome (sans dépendances externes hormis Flutter)
+/// qui :
+///   - utilise un singleton `AppState` basé sur `ChangeNotifier` pour les variables globales,
+///   - génère des pages en tant que `StatefulWidget` réactives aux changements de variables,
+///   - traduit les blocs logiques (show_snackbar, navigate_to, set_variable) en code exécutable,
+///   - implémente la navigation entre pages via `Navigator.push`.
+///
+/// Le code produit est prêt à être compilé avec `flutter build apk`.
+class ProjectToDart {
+  /// Génère le contenu du fichier `lib/app_state.dart`.
+  /// Ce fichier contient la classe AppState (ChangeNotifier) et la gestion des variables.
+  static String generateAppState(ProjectModel project) {
+    final buffer = StringBuffer();
+
+    buffer.writeln("import 'package:flutter/foundation.dart';");
+    buffer.writeln();
+    buffer.writeln('/// État global de l\'application générée.');
+    buffer.writeln('class AppState extends ChangeNotifier {');
+    buffer.writeln('  AppState._();');
+    buffer.writeln('  static final AppState instance = AppState._();');
+    buffer.writeln();
+    // Champs pour chaque variable
+    for (final variable in project.variables) {
+      final typeName = _dartTypeForVariable(variable.type);
+      final initialValue = _literalToCode(variable.initialValue, variable.type);
+      buffer.writeln('  $typeName _${variable.id} = $initialValue;');
+    }
+    buffer.writeln();
+    // Getters
+    for (final variable in project.variables) {
+      final typeName = _dartTypeForVariable(variable.type);
+      buffer.writeln('  $typeName get ${variable.id} => _${variable.id};');
+    }
+    buffer.writeln();
+    // Méthode set
+    for (final variable in project.variables) {
+      final typeName = _dartTypeForVariable(variable.type);
+      buffer.writeln('  void set_${variable.id}($typeName value) {');
+      buffer.writeln('    _${variable.id} = value;');
+      buffer.writeln('    notifyListeners();');
+      buffer.writeln('  }');
+      buffer.writeln();
+    }
+    buffer.writeln('}');
+    return buffer.toString();
+  }
+
+  /// Génère le contenu du fichier `lib/main.dart`.
+  static String generateMain(ProjectModel project) {
+    final buffer = StringBuffer();
+
+    // Imports
+    buffer.writeln("import 'package:flutter/material.dart';");
+    buffer.writeln("import 'app_state.dart';");
+    for (final page in project.pages) {
+      final pageFileName = _toSnakeCase(page.name);
+      buffer.writeln("import 'pages/${pageFileName}_page.dart';");
+    }
+    if (project.customCode.dartImports != null &&
+        project.customCode.dartImports!.isNotEmpty) {
+      buffer.writeln(project.customCode.dartImports);
+    }
+    buffer.writeln();
+
+    // Code d'initialisation personnalisé
+    if (project.customCode.initCode != null &&
+        project.customCode.initCode!.isNotEmpty) {
+      buffer.writeln('void _init() {');
+      buffer.writeln(project.customCode.initCode!);
+      buffer.writeln('}');
+      buffer.writeln();
+    }
+
+    // Fonctions globales personnalisées
+    if (project.customCode.globalFunctions != null &&
+        project.customCode.globalFunctions!.isNotEmpty) {
+      buffer.writeln(project.customCode.globalFunctions);
+      buffer.writeln();
+    }
+
+    // Classes supplémentaires
+    if (project.customCode.additionalClasses != null &&
+        project.customCode.additionalClasses!.isNotEmpty) {
+      buffer.writeln(project.customCode.additionalClasses);
+      buffer.writeln();
+    }
+
+    buffer.writeln('void main() {');
+    buffer.writeln('  WidgetsFlutterBinding.ensureInitialized();');
+    if (project.customCode.initCode != null &&
+        project.customCode.initCode!.isNotEmpty) {
+      buffer.writeln('  _init();');
+    }
+    buffer.writeln('  runApp(const MyApp());');
+    buffer.writeln('}');
+    buffer.writeln();
+
+    // Classe MyApp
+    buffer.writeln('class MyApp extends StatelessWidget {');
+    buffer.writeln('  const MyApp({super.key});');
+    buffer.writeln();
+    buffer.writeln('  @override');
+    buffer.writeln('  Widget build(BuildContext context) {');
+    buffer.writeln('    return MaterialApp(');
+    buffer.writeln('      title: ${_escapeString(project.metadata.name)},');
+    buffer.writeln('      theme: ThemeData(');
+    buffer.writeln('        colorScheme: ColorScheme.fromSeed(seedColor: ${_colorToCode(project, project.designSystem.colors['primary'] ?? '#FF6200EE')}),');
+    buffer.writeln('        useMaterial3: true,');
+    buffer.writeln('      ),');
+    // Page initiale
+    final initialPage = project.getPageById(project.navigation.initialPageId);
+    if (initialPage != null) {
+      buffer.writeln('      home: ${_pageClassName(initialPage.name)}(),');
+    } else {
+      buffer.writeln('      home: const Scaffold(body: Center(child: Text(\'Aucune page\'))),');
+    }
+    buffer.writeln('    );');
+    buffer.writeln('  }');
+    buffer.writeln('}');
+    return buffer.toString();
+  }
+
+  /// Génère le contenu d'un fichier de page.
+  static String generatePage(ProjectModel project, PageModel page) {
+    final buffer = StringBuffer();
+
+    buffer.writeln("import 'package:flutter/material.dart';");
+    buffer.writeln("import '../app_state.dart';");
+    // Import des autres pages pour la navigation
+    for (final otherPage in project.pages) {
+      if (otherPage.id != page.id) {
+        buffer.writeln("import '${_toSnakeCase(otherPage.name)}_page.dart';");
+      }
+    }
+    buffer.writeln();
+
+    // Classe StatefulWidget
+    buffer.writeln('class ${_pageClassName(page.name)} extends StatefulWidget {');
+    buffer.writeln('  const ${_pageClassName(page.name)}({super.key});');
+    buffer.writeln();
+    buffer.writeln('  @override');
+    buffer.writeln('  State<${_pageClassName(page.name)}> createState() => _${_pageClassName(page.name)}State();');
+    buffer.writeln('}');
+    buffer.writeln();
+
+    // Classe State
+    buffer.writeln('class _${_pageClassName(page.name)}State extends State<${_pageClassName(page.name)}> {');
+    buffer.writeln('  @override');
+    buffer.writeln('  Widget build(BuildContext context) {');
+    buffer.writeln('    // Écoute les changements de AppState pour reconstruire l\'interface.');
+    buffer.writeln('    return ListenableBuilder(');
+    buffer.writeln('      listenable: AppState.instance,');
+    buffer.writeln('      builder: (context, _) {');
+    buffer.writeln('        return ${_widgetToCode(project, page.rootWidget, 4)};');
+    buffer.writeln('      },');
+    buffer.writeln('    );');
+    buffer.writeln('  }');
+    buffer.writeln('}');
+
+    return buffer.toString();
+  }
+
+  /// Convertit un [WidgetNode] en code Dart (expression).
+  static String _widgetToCode(ProjectModel project, WidgetNode node, int indentLevel) {
+    final indent = '  ' * indentLevel;
+    final type = node.type;
+    final props = node.properties ?? {};
+    final child = node.child;
+    final children = node.children;
+
+    switch (type) {
+      case 'Scaffold':
+        return _scaffoldToCode(project, node, indent, indentLevel);
+      case 'Container':
+        return _containerToCode(project, node, indent, indentLevel);
+      case 'Text':
+        return _textToCode(project, node, indent, indentLevel);
+      case 'Row':
+      case 'Column':
+        return _rowColumnToCode(project, node, indent, indentLevel);
+      case 'Button':
+      case 'ElevatedButton':
+      case 'TextButton':
+      case 'OutlinedButton':
+        return _buttonToCode(project, node, indent, indentLevel);
+      case 'Image':
+        return _imageToCode(project, node, indent, indentLevel);
+      case 'Icon':
+        return _iconToCode(project, node, indent, indentLevel);
+      case 'TextField':
+        return _textFieldToCode(project, node, indent, indentLevel);
+      case 'Checkbox':
+        return _checkboxToCode(project, node, indent, indentLevel);
+      case 'Switch':
+        return _switchToCode(project, node, indent, indentLevel);
+      case 'Slider':
+        return _sliderToCode(project, node, indent, indentLevel);
+      case 'ListView':
+        return _listViewToCode(project, node, indent, indentLevel);
+      case 'GridView':
+        return _gridViewToCode(project, node, indent, indentLevel);
+      case 'ListTile':
+        return _listTileToCode(project, node, indent, indentLevel);
+      case 'AppBar':
+        return _appBarToCode(project, node, indent, indentLevel);
+      case 'SizedBox':
+        return _sizedBoxToCode(project, node, indent, indentLevel);
+      case 'Padding':
+        return _paddingToCode(project, node, indent, indentLevel);
+      case 'Center':
+        return _centerToCode(project, node, indent, indentLevel);
+      default:
+        return 'Container()';
+    }
+  }
+
+  // --- Méthodes de génération pour chaque widget ---
+
+  static String _scaffoldToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final appBarNode = _findChildByType(node, 'AppBar');
+    final bodyNode = _findChildNotType(node, 'AppBar');
+    final backgroundColor = props['backgroundColor'];
+    final buffer = StringBuffer('Scaffold(\n');
+    if (backgroundColor != null) {
+      buffer.writeln('$indent  backgroundColor: ${_colorToCode(project, backgroundColor)},');
+    }
+    buffer.writeln('$indent  appBar: ${appBarNode != null ? _widgetToCode(project, appBarNode, indentLevel + 1) : 'null'},');
+    buffer.writeln('$indent  body: ${bodyNode != null ? _widgetToCode(project, bodyNode, indentLevel + 1) : 'null'},');
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _containerToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final color = props['color'];
+    final width = props['width'];
+    final height = props['height'];
+    final padding = props['padding'];
+    final margin = props['margin'];
+    final alignment = props['alignment'];
+    final borderRadius = props['borderRadius'];
+    final childNode = node.child;
+
+    final buffer = StringBuffer('Container(\n');
+    if (width != null) buffer.writeln('$indent  width: ${_doubleToCode(width)},');
+    if (height != null) buffer.writeln('$indent  height: ${_doubleToCode(height)},');
+    if (padding != null) buffer.writeln('$indent  padding: ${_edgeInsetsToCode(padding)},');
+    if (margin != null) buffer.writeln('$indent  margin: ${_edgeInsetsToCode(margin)},');
+    if (color != null) buffer.writeln('$indent  color: ${_colorToCode(project, color)},');
+    if (alignment != null) buffer.writeln('$indent  alignment: ${_alignmentToCode(alignment)},');
+    if (borderRadius != null) {
+      buffer.writeln('$indent  decoration: BoxDecoration(');
+      buffer.writeln('$indent    borderRadius: BorderRadius.circular(${_doubleToCode(borderRadius)}),');
+      buffer.writeln('$indent  ),');
+    }
+    buffer.write('$indent  child: ${childNode != null ? _widgetToCode(project, childNode, indentLevel + 1) : 'null'},\n');
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _textToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final data = props['data'];
+    final style = props['style'];
+    final textAlign = props['textAlign'];
+    final maxLines = props['maxLines'];
+    final overflow = props['overflow'];
+
+    final buffer = StringBuffer('Text(\n');
+    // Résolution de la valeur (peut être une référence de variable)
+    final dataStr = _resolveVariableValue(project, data);
+    buffer.writeln('$indent  $dataStr,');
+    if (style != null) {
+      buffer.writeln('$indent  style: ${_textStyleToCode(project, style)},');
+    }
+    if (textAlign != null) buffer.writeln('$indent  textAlign: ${_textAlignToCode(textAlign)},');
+    if (maxLines != null) buffer.writeln('$indent  maxLines: $maxLines,');
+    if (overflow != null) buffer.writeln('$indent  overflow: ${_textOverflowToCode(overflow)},');
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _rowColumnToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final isRow = node.type == 'Row';
+    final props = node.properties ?? {};
+    final mainAxisAlignment = props['mainAxisAlignment'];
+    final crossAxisAlignment = props['crossAxisAlignment'];
+    final mainAxisSize = props['mainAxisSize'];
+    final children = node.children ?? [];
+
+    final buffer = StringBuffer('${isRow ? 'Row' : 'Column'}(\n');
+    if (mainAxisAlignment != null) buffer.writeln('$indent  mainAxisAlignment: ${_mainAxisAlignmentToCode(mainAxisAlignment)},');
+    if (crossAxisAlignment != null) buffer.writeln('$indent  crossAxisAlignment: ${_crossAxisAlignmentToCode(crossAxisAlignment)},');
+    if (mainAxisSize != null) buffer.writeln('$indent  mainAxisSize: ${_mainAxisSizeToCode(mainAxisSize)},');
+    if (children.isNotEmpty) {
+      buffer.writeln('$indent  children: [');
+      for (final child in children) {
+        buffer.writeln('$indent    ${_widgetToCode(project, child, indentLevel + 1)},');
+      }
+      buffer.writeln('$indent  ],');
+    } else {
+      buffer.writeln('$indent  children: const [],');
+    }
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _buttonToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final text = props['text'] ?? props['data'] ?? 'Bouton';
+    final buttonType = props['buttonType'] ?? 'elevated';
+    final color = props['color'];
+    final textColor = props['textColor'];
+    final childNode = node.child;
+    final childCode = childNode != null
+        ? _widgetToCode(project, childNode, indentLevel + 2)
+        : 'Text(${_escapeString(text)})';
+
+    // Récupérer les blocs d'événement pour ce widget (onPressed)
+    final eventBlocks = _getEventBlocks(project, node.id, 'onPressed');
+    final onPressedCode = eventBlocks.isNotEmpty
+        ? _generateEventCallback(project, eventBlocks, indent + '  ')
+        : '() {}';
+
+    switch (buttonType) {
+      case 'text':
+        return 'TextButton(\n$indent  onPressed: $onPressedCode,\n$indent  child: $childCode,\n$indent)';
+      case 'outlined':
+        return 'OutlinedButton(\n$indent  onPressed: $onPressedCode,\n$indent  child: $childCode,\n$indent)';
+      default:
+        final colorStr = color != null ? _colorToCode(project, color) : 'Colors.blue';
+        final textColorStr = textColor != null ? _colorToCode(project, textColor) : 'Colors.white';
+        return 'ElevatedButton(\n'
+            '$indent  onPressed: $onPressedCode,\n'
+            '$indent  style: ElevatedButton.styleFrom(\n'
+            '$indent    backgroundColor: $colorStr,\n'
+            '$indent    foregroundColor: $textColorStr,\n'
+            '$indent  ),\n'
+            '$indent  child: $childCode,\n'
+            '$indent)';
+    }
+  }
+
+  static String _imageToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final src = props['src'];
+    final width = props['width'];
+    final height = props['height'];
+    final fit = props['fit'];
+
+    if (src == null) {
+      return 'Placeholder(fallbackHeight: 100, fallbackWidth: 100)';
+    }
+    final srcStr = _resolveVariableValue(project, src);
+    final isNetwork = srcStr.startsWith('http://') || srcStr.startsWith('https://');
+    final imageCode = isNetwork
+        ? 'Image.network($srcStr)'
+        : 'Image.asset($srcStr)';
+
+    if (width != null || height != null || fit != null) {
+      final buffer = StringBuffer('Image.network(\n$indent  $srcStr,\n');
+      if (width != null) buffer.writeln('$indent  width: ${_doubleToCode(width)},');
+      if (height != null) buffer.writeln('$indent  height: ${_doubleToCode(height)},');
+      if (fit != null) buffer.writeln('$indent  fit: ${_boxFitToCode(fit)},');
+      buffer.write('$indent)');
+      return buffer.toString();
+    }
+    return imageCode;
+  }
+
+  static String _iconToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final iconName = props['icon'] ?? 'circle';
+    final color = props['color'];
+    final size = props['size'];
+
+    final iconData = _iconNameToCode(iconName);
+    final buffer = StringBuffer('Icon(\n');
+    buffer.writeln('$indent  $iconData,');
+    if (color != null) buffer.writeln('$indent  color: ${_colorToCode(project, color)},');
+    if (size != null) buffer.writeln('$indent  size: ${_doubleToCode(size)},');
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _textFieldToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final hintText = props['hintText'];
+    final obscureText = props['obscureText'] ?? false;
+    final keyboardType = props['keyboardType'];
+    final maxLines = props['maxLines'];
+    final controllerCode = _textFieldControllerToCode(project, node);
+
+    final buffer = StringBuffer('TextField(\n');
+    if (hintText != null) buffer.writeln('$indent  decoration: InputDecoration(hintText: ${_escapeString(hintText)}),');
+    if (obscureText == true) buffer.writeln('$indent  obscureText: true,');
+    if (keyboardType != null) buffer.writeln('$indent  keyboardType: ${_keyboardTypeToCode(keyboardType)},');
+    if (maxLines != null) buffer.writeln('$indent  maxLines: $maxLines,');
+    if (controllerCode != null) buffer.writeln('$indent  controller: $controllerCode,');
+    // Event onChanged
+    final eventBlocks = _getEventBlocks(project, node.id, 'onChanged');
+    if (eventBlocks.isNotEmpty) {
+      final onChangedCode = _generateEventCallback(project, eventBlocks, indent + '  ');
+      buffer.writeln('$indent  onChanged: $onChangedCode,');
+    } else {
+      buffer.writeln('$indent  onChanged: (value) {},');
+    }
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _checkboxToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final value = props['value'];
+    final valueStr = _resolveVariableValue(project, value);
+    final eventBlocks = _getEventBlocks(project, node.id, 'onChanged');
+    final onChangedCode = eventBlocks.isNotEmpty
+        ? _generateEventCallback(project, eventBlocks, indent + '  ')
+        : '(value) {}';
+    return 'Checkbox(\n$indent  value: $valueStr,\n$indent  onChanged: $onChangedCode,\n$indent)';
+  }
+
+  static String _switchToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final value = props['value'];
+    final valueStr = _resolveVariableValue(project, value);
+    final eventBlocks = _getEventBlocks(project, node.id, 'onChanged');
+    final onChangedCode = eventBlocks.isNotEmpty
+        ? _generateEventCallback(project, eventBlocks, indent + '  ')
+        : '(value) {}';
+    return 'Switch(\n$indent  value: $valueStr,\n$indent  onChanged: $onChangedCode,\n$indent)';
+  }
+
+  static String _sliderToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final min = props['min'] ?? 0;
+    final max = props['max'] ?? 100;
+    final value = props['value'];
+    final valueStr = _resolveVariableValue(project, value);
+    final eventBlocks = _getEventBlocks(project, node.id, 'onChanged');
+    final onChangedCode = eventBlocks.isNotEmpty
+        ? _generateEventCallback(project, eventBlocks, indent + '  ')
+        : '(value) {}';
+    return 'Slider(\n$indent  value: $valueStr,\n$indent  min: $min,\n$indent  max: $max,\n$indent  onChanged: $onChangedCode,\n$indent)';
+  }
+
+  static String _listViewToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final children = node.children ?? [];
+    final scrollDirection = props['scrollDirection'] ?? 'vertical';
+    final reverse = props['reverse'] ?? false;
+
+    final buffer = StringBuffer('ListView(\n');
+    buffer.writeln('$indent  scrollDirection: ${scrollDirection == 'horizontal' ? 'Axis.horizontal' : 'Axis.vertical'},');
+    if (reverse == true) buffer.writeln('$indent  reverse: true,');
+    if (children.isNotEmpty) {
+      buffer.writeln('$indent  children: [');
+      for (final child in children) {
+        buffer.writeln('$indent    ${_widgetToCode(project, child, indentLevel + 1)},');
+      }
+      buffer.writeln('$indent  ],');
+    }
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _gridViewToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final crossAxisCount = props['crossAxisCount'] ?? 2;
+    final children = node.children ?? [];
+
+    final buffer = StringBuffer('GridView.count(\n');
+    buffer.writeln('$indent  crossAxisCount: $crossAxisCount,');
+    if (children.isNotEmpty) {
+      buffer.writeln('$indent  children: [');
+      for (final child in children) {
+        buffer.writeln('$indent    ${_widgetToCode(project, child, indentLevel + 1)},');
+      }
+      buffer.writeln('$indent  ],');
+    }
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _listTileToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final title = props['title'];
+    final subtitle = props['subtitle'];
+    final eventBlocks = _getEventBlocks(project, node.id, 'onTap');
+    final onTapCode = eventBlocks.isNotEmpty
+        ? _generateEventCallback(project, eventBlocks, indent + '  ')
+        : '() {}';
+
+    final buffer = StringBuffer('ListTile(\n');
+    if (title != null) buffer.writeln('$indent  title: Text(${_escapeString(title)}),');
+    if (subtitle != null) buffer.writeln('$indent  subtitle: Text(${_escapeString(subtitle)}),');
+    buffer.writeln('$indent  onTap: $onTapCode,');
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _appBarToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final title = props['title'] ?? '';
+    final backgroundColor = props['backgroundColor'];
+
+    final buffer = StringBuffer('AppBar(\n');
+    buffer.writeln('$indent  title: Text(${_escapeString(title)}),');
+    if (backgroundColor != null) buffer.writeln('$indent  backgroundColor: ${_colorToCode(project, backgroundColor)},');
+    buffer.write('$indent)');
+    return buffer.toString();
+  }
+
+  static String _sizedBoxToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final width = props['width'];
+    final height = props['height'];
+    final childNode = node.child;
+    return 'SizedBox(\n$indent  width: ${_doubleToCode(width)},\n$indent  height: ${_doubleToCode(height)},\n$indent  child: ${childNode != null ? _widgetToCode(project, childNode, indentLevel + 1) : 'null'},\n$indent)';
+  }
+
+  static String _paddingToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final props = node.properties ?? {};
+    final padding = props['padding'];
+    final childNode = node.child;
+    return 'Padding(\n$indent  padding: ${_edgeInsetsToCode(padding)},\n$indent  child: ${childNode != null ? _widgetToCode(project, childNode, indentLevel + 1) : 'null'},\n$indent)';
+  }
+
+  static String _centerToCode(ProjectModel project, WidgetNode node, String indent, int indentLevel) {
+    final childNode = node.child;
+    return 'Center(\n$indent  child: ${childNode != null ? _widgetToCode(project, childNode, indentLevel + 1) : 'null'},\n$indent)';
+  }
+
+  // --- Méthodes utilitaires pour la logique et les événements ---
+
+  /// Récupère les blocs associés à un événement pour un widget donné.
+  static List<LogicBlock> _getEventBlocks(ProjectModel project, String widgetId, String eventName) {
+    for (final page in project.pages) {
+      final bindings = page.logicBindings;
+      if (bindings != null && bindings.containsKey(widgetId)) {
+        final events = bindings[widgetId]!;
+        if (events.containsKey(eventName)) {
+          return events[eventName]!.map((json) => LogicBlock.fromJson(json)).toList();
+        }
+      }
+    }
+    return [];
+  }
+
+  /// Génère le code d'une fonction callback pour un événement.
+  /// La fonction exécute séquentiellement les blocs en utilisant le dispatcher.
+  static String _generateEventCallback(ProjectModel project, List<LogicBlock> blocks, String indent) {
+    final buffer = StringBuffer('() {\n');
+    for (final block in blocks) {
+      buffer.writeln(CodeBlockGenerator.generate(block, indent: indent + '  '));
+    }
+    buffer.write('$indent}');
+    return buffer.toString();
+  }
+
+  /// Résout une valeur (peut être une référence @variables.xxx) en code Dart.
+  /// Pour un Text par exemple, si la valeur est une référence, on génère `AppState.instance.varId.toString()`.
+  /// Pour les widgets booléens, on utilisera le getter directement (voir _resolveVariableValueForType).
+  static String _resolveVariableValue(ProjectModel project, dynamic value) {
+    if (value is String && value.startsWith('@variables.')) {
+      final varId = value.substring('@variables.'.length);
+      return "AppState.instance.$varId.toString()";
+    }
+    return _literalToCode(value, null);
+  }
+
+  /// Convertit une valeur Dart (issue du JSON) en code source.
+  /// Si type est fourni, on peut forcer la conversion ; sinon on détecte.
+  static String _literalToCode(dynamic value, VariableType? type) {
+    if (value == null) return 'null';
+    if (value is bool) return value ? 'true' : 'false';
+    if (value is num) return value.toString();
+    if (value is String) {
+      if (type == VariableType.string) {
+        return _escapeString(value);
+      }
+      return _escapeString(value);
+    }
+    return value.toString();
+  }
+
+  /// Génère le code d'un contrôleur de TextField si la valeur est liée à une variable.
+  static String? _textFieldControllerToCode(ProjectModel project, WidgetNode node) {
+    final props = node.properties ?? {};
+    final controller = props['controller'];
+    if (controller != null && controller is String && controller.startsWith('@variables.')) {
+      final varId = controller.substring('@variables.'.length);
+      return "TextEditingController(text: AppState.instance.$varId.toString())..addListener(() { AppState.instance.set_$varId(controller.text); })";
+    }
+    return null;
+  }
+
+  // --- Helpers de conversion existants (inchangés mais adaptés) ---
+
+  static String _colorToCode(ProjectModel project, dynamic value) {
+    if (value == null) return 'Colors.transparent';
+    if (value is String && value.startsWith('@colors.')) {
+      final name = value.substring('@colors.'.length);
+      final hex = project.designSystem.colors[name];
+      if (hex != null) return _colorToHex(hex);
+    }
+    if (value is String) return _colorToHex(value);
+    return 'Colors.transparent';
+  }
+
+  static String _colorToHex(String hex) {
+    String cleaned = hex.replaceAll('#', '');
+    if (cleaned.length == 6) cleaned = 'FF$cleaned';
+    return 'Color(0x$cleaned)';
+  }
+
+  static String _textStyleToCode(ProjectModel project, dynamic style) {
+    if (style == null) return 'const TextStyle()';
+    if (style is String && style.startsWith('@text_styles.')) {
+      final name = style.substring('@text_styles.'.length);
+      final styleMap = project.designSystem.textStyles[name];
+      if (styleMap == null) return 'const TextStyle()';
+      return _textStyleMapToCode(project, styleMap);
+    }
+    if (style is Map<String, dynamic>) {
+      return _textStyleMapToCode(project, style);
+    }
+    return 'const TextStyle()';
+  }
+
+  static String _textStyleMapToCode(ProjectModel project, Map<String, dynamic> map) {
+    final buffer = StringBuffer('TextStyle(');
+    if (map['fontSize'] != null) buffer.write('fontSize: ${map['fontSize']}, ');
+    if (map['fontWeight'] != null) buffer.write('fontWeight: ${_fontWeightToCode(map['fontWeight'])}, ');
+    if (map['color'] != null) buffer.write('color: ${_colorToCode(project, map['color'])}, ');
+    if (map['fontStyle'] != null) buffer.write('fontStyle: ${map['fontStyle'] == 'italic' ? 'FontStyle.italic' : 'FontStyle.normal'}, ');
+    buffer.write(')');
+    return buffer.toString();
+  }
+
+  static String _edgeInsetsToCode(dynamic value) {
+    if (value == null) return 'EdgeInsets.zero';
+    if (value is Map) {
+      if (value.containsKey('all')) return 'EdgeInsets.all(${value['all']})';
+      final top = value['top'] ?? 0;
+      final bottom = value['bottom'] ?? 0;
+      final left = value['left'] ?? 0;
+      final right = value['right'] ?? 0;
+      return 'EdgeInsets.only(top: $top, bottom: $bottom, left: $left, right: $right)';
+    }
+    if (value is num) return 'EdgeInsets.all($value)';
+    return 'EdgeInsets.zero';
+  }
+
+  static String _alignmentToCode(dynamic value) {
+    switch (value?.toString()) {
+      case 'center': return 'Alignment.center';
+      case 'topLeft': return 'Alignment.topLeft';
+      case 'topCenter': return 'Alignment.topCenter';
+      case 'topRight': return 'Alignment.topRight';
+      case 'centerLeft': return 'Alignment.centerLeft';
+      case 'centerRight': return 'Alignment.centerRight';
+      case 'bottomLeft': return 'Alignment.bottomLeft';
+      case 'bottomCenter': return 'Alignment.bottomCenter';
+      case 'bottomRight': return 'Alignment.bottomRight';
+      default: return 'Alignment.center';
+    }
+  }
+
+  static String _mainAxisAlignmentToCode(dynamic value) {
+    switch (value?.toString()) {
+      case 'center': return 'MainAxisAlignment.center';
+      case 'end': return 'MainAxisAlignment.end';
+      case 'spaceBetween': return 'MainAxisAlignment.spaceBetween';
+      case 'spaceAround': return 'MainAxisAlignment.spaceAround';
+      case 'spaceEvenly': return 'MainAxisAlignment.spaceEvenly';
+      default: return 'MainAxisAlignment.start';
+    }
+  }
+
+  static String _crossAxisAlignmentToCode(dynamic value) {
+    switch (value?.toString()) {
+      case 'center': return 'CrossAxisAlignment.center';
+      case 'end': return 'CrossAxisAlignment.end';
+      case 'stretch': return 'CrossAxisAlignment.stretch';
+      default: return 'CrossAxisAlignment.start';
+    }
+  }
+
+  static String _mainAxisSizeToCode(dynamic value) {
+    return value?.toString() == 'min' ? 'MainAxisSize.min' : 'MainAxisSize.max';
+  }
+
+  static String _textAlignToCode(dynamic value) {
+    switch (value?.toString()) {
+      case 'left': return 'TextAlign.left';
+      case 'right': return 'TextAlign.right';
+      case 'center': return 'TextAlign.center';
+      case 'justify': return 'TextAlign.justify';
+      default: return 'TextAlign.left';
+    }
+  }
+
+  static String _textOverflowToCode(dynamic value) {
+    switch (value?.toString()) {
+      case 'ellipsis': return 'TextOverflow.ellipsis';
+      case 'fade': return 'TextOverflow.fade';
+      case 'clip': return 'TextOverflow.clip';
+      default: return 'TextOverflow.clip';
+    }
+  }
+
+  static String _boxFitToCode(dynamic value) {
+    switch (value?.toString()) {
+      case 'cover': return 'BoxFit.cover';
+      case 'contain': return 'BoxFit.contain';
+      case 'fill': return 'BoxFit.fill';
+      case 'scaleDown': return 'BoxFit.scaleDown';
+      default: return 'BoxFit.contain';
+    }
+  }
+
+  static String _keyboardTypeToCode(dynamic value) {
+    switch (value?.toString()) {
+      case 'number': return 'TextInputType.number';
+      case 'email': return 'TextInputType.emailAddress';
+      case 'phone': return 'TextInputType.phone';
+      default: return 'TextInputType.text';
+    }
+  }
+
+  static String _iconNameToCode(dynamic name) {
+    final map = {
+      'home': 'Icons.home',
+      'favorite': 'Icons.favorite',
+      'star': 'Icons.star',
+      'person': 'Icons.person',
+      'settings': 'Icons.settings',
+      'search': 'Icons.search',
+      'add': 'Icons.add',
+      'delete': 'Icons.delete',
+      'edit': 'Icons.edit',
+      'check': 'Icons.check',
+      'close': 'Icons.close',
+      'menu': 'Icons.menu',
+      'share': 'Icons.share',
+      'download': 'Icons.download',
+      'upload': 'Icons.upload',
+      'refresh': 'Icons.refresh',
+      'info': 'Icons.info',
+      'warning': 'Icons.warning',
+      'error': 'Icons.error',
+      'help': 'Icons.help',
+      'notifications': 'Icons.notifications',
+      'email': 'Icons.email',
+      'phone': 'Icons.phone',
+      'camera': 'Icons.camera',
+      'image': 'Icons.image',
+    };
+    return map[name] ?? 'Icons.circle';
+  }
+
+  static double? _parseDoubleOrNull(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  static String _doubleToCode(dynamic value) {
+    final d = _parseDoubleOrNull(value);
+    return d != null ? d.toString() : 'null';
+  }
+
+  static String _escapeString(String str) {
+    return "'${str.replaceAll("'", "\\'")}'";
+  }
+
+  static String _fontWeightToCode(dynamic weight) {
+    if (weight is int) {
+      return 'FontWeight.w$weight';
+    }
+    switch (weight?.toString()) {
+      case 'bold': return 'FontWeight.bold';
+      case 'normal': return 'FontWeight.normal';
+      default: return 'FontWeight.w400';
+    }
+  }
+
+  // --- Helpers pour les enfants ---
+  static WidgetNode? _findChildByType(WidgetNode node, String type) {
+    if (node.child?.type == type) return node.child;
+    if (node.children != null) {
+      for (final child in node.children!) {
+        if (child.type == type) return child;
+      }
+    }
+    return null;
+  }
+
+  static WidgetNode? _findChildNotType(WidgetNode node, String type) {
+    if (node.child?.type != type) return node.child;
+    if (node.children != null) {
+      for (final child in node.children!) {
+        if (child.type != type) return child;
+      }
+    }
+    return null;
+  }
+
+  // --- Helpers pour les noms ---
+  static String _pageClassName(String pageName) {
+    return '${_toPascalCase(pageName)}Page';
+  }
+
+  static String _toSnakeCase(String input) {
+    return input
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+  }
+
+  static String _toPascalCase(String input) {
+    final words = input
+        .split(RegExp(r'[^a-zA-Z0-9]+'))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .toList();
+    return words.join();
+  }
+
+  static String _dartTypeForVariable(VariableType type) {
+    switch (type) {
+      case VariableType.int:
+        return 'int';
+      case VariableType.double:
+        return 'double';
+      case VariableType.bool:
+        return 'bool';
+      case VariableType.string:
+        return 'String';
+      case VariableType.list:
+        return 'List<dynamic>';
+      case VariableType.map:
+        return 'Map<String, dynamic>';
+      case VariableType.object:
+        return 'dynamic';
+      default:
+        return 'dynamic';
+    }
+  }
+}

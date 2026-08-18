@@ -1,0 +1,552 @@
+📘 Documentation Complète de SketchFlutter
+
+SketchFlutter est un éditeur visuel d'applications Flutter. Il permet de créer des interfaces graphiquement, de définir une logique simple par blocs, de prévisualiser en direct, puis de compiler un APK via GitHub Actions.
+
+Cette documentation décrit l'architecture du projet, le rôle de chaque dossier/fichier, et fournit un guide pour modifier ou étendre l'application.
+
+---
+
+Table des matières
+
+1. Vue d'ensemble
+2. Arborescence du projet
+3. Détail du dossier lib/
+   · core/
+   · models/
+   · services/
+   · providers/
+   · render_engine/
+   · screens/
+   · widgets/
+   · generator/
+   · utils/
+4. Comment modifier / ajouter des fonctionnalités
+   · Ajouter un nouveau widget
+   · Ajouter un nouveau bloc logique
+   · Modifier le modèle de données
+   · Modifier le générateur de code
+   · Modifier l'interface utilisateur
+5. Points d'attention et fichiers obsolètes
+6. Éléments manquants / à compléter
+7. Tests
+
+---
+
+Vue d'ensemble
+
+L'application est organisée en couches :
+
+· Modèles (models/) : représentation des données (projet, pages, widgets, variables, etc.) avec sérialisation JSON.
+· Services (services/) : opérations sur les données (stockage local, import/export, GitHub, compilation).
+· Providers (providers/) : gestion d'état avec Riverpod (projet actif, éditeur, variables...).
+· Moteur de rendu (render_engine/) : interprète le JSON du projet en widgets Flutter pour l'aperçu.
+· Interface utilisateur (screens/, widgets/) : écrans et composants réutilisables.
+· Générateur de code (generator/) : transforme le projet en code Dart Flutter compilable.
+
+---
+
+Arborescence du projet
+
+```
+/storage/emulated/0/sketchflutter/
+├── android/                  # Configuration Android (généré par Flutter)
+├── ios/                      # Configuration iOS (généré par Flutter)
+├── assets/
+│   ├── icons/                # Icônes de l'éditeur
+│   └── templates/            # Modèles de projets (vierge, login, etc.)
+├── lib/                      # Code source principal (voir détail)
+├── pubspec.yaml              # Dépendances de l'éditeur
+└── test/                     # Tests unitaires
+    ├── generator_test.dart
+    ├── import_export_test.dart
+    └── parser_test.dart
+```
+
+---
+
+Détail du dossier lib/
+
+core/
+
+Contient les constantes globales, utilitaires transversaux et classes d'erreurs.
+
+· constants/
+  · app_colors.dart : palette de couleurs de l'éditeur (mode sombre, accents, etc.).
+  · app_strings.dart : tous les libellés/textes de l'interface (français).
+  · schema_versions.dart : gestion des versions du schéma JSON (migrations).
+· errors/
+  · project_import_error.dart : exception pour les erreurs d'import .mub.
+  · validation_error.dart : exception pour les erreurs de validation du JSON.
+· utils/
+  · alignment_utils.dart : conversion entre chaînes et Alignment Flutter.
+  · color_utils.dart : conversion hexadécimale ↔ Color.
+  · debouncer.dart : utilitaire de debounce (recherche, sauvegarde auto).
+  · edge_insets_utils.dart : conversion JSON ↔ EdgeInsets.
+  · file_utils.dart : lecture/écriture de fichiers, base64, répertoires.
+  · json_utils.dart : helpers JSON (lecture typée, copie profonde).
+  · text_style_utils.dart : conversion JSON ↔ TextStyle.
+  · uuid_generator.dart : génération d'identifiants uniques.
+
+models/
+
+Modèles de données avec fromJson / toJson. Tous sont immuables (champs final, copyWith).
+
+· asset_model.dart : asset (image, police) encodé en base64.
+· custom_code.dart : code Dart personnalisé (imports, fonctions, classes).
+· dependencies.dart : liste des dépendances externes (pub, git, path).
+· design_system.dart : couleurs, styles de texte, espacements globaux.
+· generation_settings.dart : paramètres de génération APK (package, version, orientation...).
+· logic_block.dart : bloc logique (type, paramètres) et constantes de types.
+· navigation_model.dart : page initiale et routes de navigation.
+· page_model.dart : page (écran) avec arbre de widgets et liaisons logiques.
+· project_metadata.dart : nom, auteur, dates, miniature du projet.
+· project_model.dart : racine du projet, agrège tous les sous-modèles.
+· variable.dart : variable globale (nom, type, valeur initiale).
+· widget_node.dart : nœud de widget (type, propriétés, enfant(s)).
+
+services/
+
+Services métier et communication externe.
+
+· compile_service.dart : orchestration de la compilation (interface CompilationBackend).
+· file_download_service.dart : téléchargement de fichiers (APK) avec progression.
+· github_service.dart : intégration API GitHub (création repo, upload, workflow).
+· project_import_export.dart : import/export du format .mub (JSON compressé gzip).
+· project_storage.dart : sauvegarde/chargement local des projets (fichiers JSON + index).
+
+providers/
+
+Gestion d'état avec Riverpod.
+
+· design_system_provider.dart : fournit le design system courant et méthodes de modification.
+· editor_provider.dart : état de l'éditeur (sélection, page courante, undo/redo).
+· project_provider.dart : liste des projets, projet actif, actions CRUD.
+· render_engine_provider.dart : fournit un RenderEngineContext (design system + variables).
+· variable_store.dart : magasin des variables globales et leurs valeurs courantes.
+
+render_engine/
+
+Interprète le JSON en widgets Flutter et exécute la logique pour l'aperçu.
+
+· json_widget_parser.dart : parseur principal, fait la récursion et utilise les builders.
+· widget_registry.dart : registre des types de widgets supportés.
+· render_context.dart : contexte partagé (design system, resolver, parsers, callback setVariable).
+· property_parsers/ : convertit les propriétés JSON en objets Flutter.
+  · alignment_parser.dart
+  · color_parser.dart
+  · edge_insets_parser.dart
+  · text_style_parser.dart
+  · reference_resolver.dart (résout @colors, @text_styles, @spacing, @variables)
+· widget_builders/ : construit un widget Flutter pour chaque type.
+  · appbar_builder.dart, button_builder.dart, center_builder.dart, etc.
+· logic_executor/ : exécute les blocs logiques lors des événements.
+  · logic_executor.dart : boucle d'exécution, dispatcher.
+  · block_types/ : implémentations des blocs (show_snackbar, navigate, set_variable, condition, loop, math_operation).
+
+screens/
+
+Écrans de l'application.
+
+· design_tab.dart : onglet Design (toile + palette + inspecteur).
+· editor_screen.dart : écran principal de l'éditeur avec les onglets.
+· export_screen.dart : export / compilation APK.
+· home_screen.dart : ancien écran d'accueil (remplacé par project_list_screen).
+· logic_tab.dart : onglet Logique (variables + événements).
+· pages_tab.dart : onglet Pages (gestion des écrans).
+· preview_screen.dart : aperçu en direct (exécution locale).
+· project_list_screen.dart : liste des projets (écran d'accueil actuel).
+· settings_screen.dart : paramètres de l'éditeur.
+
+widgets/
+
+Composants d'interface réutilisables.
+
+· canvas_area.dart : zone de rendu interactive (zoom, pan, grille).
+· color_picker.dart : sélecteur de couleur (champ hex + dialogue RVB).
+· dropdown_input.dart : liste déroulante générique.
+· icon_picker.dart : sélecteur d'icône Material.
+· logic_block_editor.dart : éditeur de blocs logiques (ajout, modification, suppression).
+· number_input.dart : champ numérique avec validation et slider optionnel.
+· project_card.dart : carte de projet dans la liste.
+· property_inspector.dart : panneau d'inspection des propriétés d'un widget.
+· variable_manager.dart : gestionnaire de variables (liste + CRUD).
+· widget_palette.dart : palette de widgets (barre horizontale).
+· widget_tree_view.dart : arborescence des widgets.
+
+generator/
+
+Transforme le ProjectModel en code Dart Flutter compilable.
+
+· code_generator.dart : orchestre la génération (appelle PubspecGenerator et ProjectToDart).
+· project_to_dart.dart : génère main.dart, app_state.dart et les pages.
+· pubspec_generator.dart : génère pubspec.yaml.
+· widget_code_generators/ : générateurs de code pour chaque type de widget.
+  · widget_code_utils.dart : helpers partagés (couleurs, EdgeInsets, etc.).
+  · container_generator.dart, text_generator.dart, etc.
+· logic_code_generators/ : générateurs de code pour les blocs logiques.
+  · code_block_generator.dart : dispatcher.
+  · set_variable_generator.dart, show_snackbar_generator.dart, etc.
+
+utils/
+
+Ré-export des utilitaires de core/utils pour éviter les imports longs.
+
+· debouncer.dart
+· file_utils.dart
+· json_utils.dart
+· uuid_generator.dart
+
+---
+
+Comment modifier / ajouter des fonctionnalités
+
+Ajouter un nouveau widget
+
+1. Définir le type dans les modèles (aucun changement nécessaire, WidgetNode accepte tout type).
+2. Ajouter le builder dans lib/render_engine/widget_builders/ :
+   · Créer un fichier monwidget_builder.dart avec une classe MonWidgetBuilder et une méthode build.
+3. Enregistrer le type dans widget_registry.dart.
+4. Ajouter le cas dans json_widget_parser.dart.
+5. Ajouter le générateur de code dans lib/generator/widget_code_generators/ :
+   · Créer monwidget_generator.dart et ajouter le cas dans project_to_dart.dart.
+6. Ajouter le widget à la palette dans widget_palette.dart (item).
+7. Ajouter les champs d'inspection dans property_inspector.dart (map _widgetPropertyFields).
+
+Ajouter un nouveau bloc logique
+
+1. Définir le type dans logic_block.dart (LogicBlockTypes).
+2. Créer l'exécuteur dans render_engine/logic_executor/block_types/.
+3. Ajouter le case dans logic_executor.dart.
+4. Créer le générateur dans generator/logic_code_generators/.
+5. Ajouter le case dans code_block_generator.dart.
+6. Ajouter à l'éditeur dans logic_block_editor.dart (dialogue de création).
+
+Modifier le modèle de données
+
+Tous les modèles sont dans lib/models/. Modifiez les champs, les méthodes fromJson/toJson et copyWith. Pensez à mettre à jour la version du schéma dans schema_versions.dart si le format change, et à écrire une migration.
+
+Modifier le générateur de code
+
+Les générateurs sont dans lib/generator/. Pour changer la sortie Dart, modifiez project_to_dart.dart ou les fichiers de widget_code_generators/ et logic_code_generators/.
+
+Modifier l'interface utilisateur
+
+· Écrans : lib/screens/.
+· Composants réutilisables : lib/widgets/.
+· Thème : app.dart et core/constants/app_colors.dart.
+
+---
+
+Points d'attention et fichiers obsolètes
+
+Votre arborescence contient des fichiers avec l'extension .bak. Ils sont dus à des sauvegardes automatiques de votre éditeur et ne sont pas utilisés par Flutter. Vous pouvez les supprimer sans risque :
+
+· lib/generator/code_generator.dart.bak
+· lib/generator/logic_code_generators/*.bak
+· lib/generator/project_to_dart.dart.bak
+· lib/render_engine/logic_executor/*.bak
+· lib/render_engine/logic_executor/block_types/*.bak
+· lib/render_engine/render_context.dart.bak
+· lib/screens/preview_screen.dart.bak
+· lib/services/compile_service.dart.bak
+
+Nettoyez-les pour une arborescence propre.
+
+---
+
+Éléments manquants / à compléter
+
+· Duplication de projet : le service existe, mais l'action n'est pas câblée dans l'UI.
+· Import/export .mub : les services sont prêts, mais les boutons de l'UI affichent un SnackBar "à venir".
+· Glisser-déposer dans la toile : l'ajout se fait via la palette, pas par drag.
+· Édition visuelle des arbres : widget_tree_view.dart est prêt mais pas intégré dans un panneau latéral.
+· Gestion avancée des blocs : if, loop, math_operation existent dans le moteur et le générateur, mais l'éditeur logic_block_editor.dart ne sait encore créer que show_snackbar, navigate, set_variable.
+· Réactivité complète de l'aperçu : les variables se mettent à jour via setVariable, mais il faut vérifier que preview_screen reconstruit correctement l'UI après changement.
+· Tests : les fichiers de test existent mais sont probablement vides ou minimaux.
+
+---
+
+Tests
+
+Dans test/ :
+
+· parser_test.dart : tester le parseur JSON → Widget (JsonWidgetParser).
+· generator_test.dart : tester le générateur de code (CodeGenerator, ProjectToDart).
+· import_export_test.dart : tester l'import/export .mub.
+
+Pour les compléter, créez des projets factices (ProjectModel.create, ajout de pages/variables, etc.) et vérifiez que les sorties correspondent aux attentes.
+
+---
+
+Cette documentation vous permet de comprendre et de maintenir l'application. N'hésitez pas à l'enrichir au fil des évolutions.# 📚 Documentation Complète de SketchFlutter
+
+Cette documentation couvre l'intégralité de l'application SketchFlutter, un éditeur visuel d'applications Flutter. Elle détaille l'architecture, le rôle de chaque dossier et fichier, et fournit un guide de modification/extension.
+
+---
+
+🌐 Vue d'ensemble
+
+SketchFlutter permet de :
+
+· Concevoir des interfaces par glisser-déposer (design).
+· Définir une logique simple par blocs (variables, navigation, conditions, boucles, math).
+· Prévisualiser l'application en direct (interpréteur JSON → Widgets).
+· Générer un projet Flutter complet (code Dart + pubspec.yaml).
+· Compiler un APK via GitHub Actions (cloud).
+
+L'architecture suit une séparation en couches :
+
+1. Modèles (models/) – données et sérialisation JSON.
+2. Services (services/) – opérations métier (stockage, import/export, GitHub, compilation).
+3. Providers (providers/) – gestion d'état Riverpod.
+4. Moteur de rendu (render_engine/) – interprétation JSON → Widgets, exécution logique.
+5. Interface utilisateur (screens/, widgets/) – écrans et composants réutilisables.
+6. Générateur de code (generator/) – conversion du modèle en code Dart compilable.
+
+---
+
+📁 Arborescence du projet
+
+```
+sketchflutter/
+├── android/                  # Configuration Android (généré par Flutter)
+├── ios/                      # Configuration iOS (généré par Flutter)
+├── assets/
+│   ├── icons/                # Icônes de l'éditeur
+│   └── templates/            # Modèles de projets (vierge, login, etc.)
+├── lib/
+│   ├── main.dart             # Point d'entrée
+│   ├── app.dart              # Widget racine (thème, routes)
+│   ├── core/                 # Constantes, utilitaires, erreurs
+│   ├── models/               # Modèles de données
+│   ├── services/             # Services métier
+│   ├── providers/            # Gestion d'état Riverpod
+│   ├── render_engine/        # Interpréteur JSON → Widgets
+│   ├── screens/              # Écrans de l'application
+│   ├── widgets/              # Composants UI réutilisables
+│   ├── generator/            # Générateur de code Dart
+│   └── utils/                # Ré-export des utilitaires core
+├── pubspec.yaml              # Dépendances
+└── test/                     # Tests unitaires
+```
+
+---
+
+🔍 Détail du dossier lib/
+
+core/
+
+Contient les constantes globales, utilitaires transversaux et classes d'erreurs.
+
+Fichier Rôle
+constants/app_colors.dart Palette de couleurs de l'éditeur (mode sombre, accents, etc.)
+constants/app_strings.dart Tous les textes et libellés de l'interface (français)
+constants/schema_versions.dart Versions du schéma JSON, validation et migrations
+errors/project_import_error.dart Exception pour erreurs d'import .mub
+errors/validation_error.dart Exception pour erreurs de validation du JSON
+utils/alignment_utils.dart Conversion String ↔ Alignment Flutter
+utils/color_utils.dart Conversion hex ↔ Color
+utils/debouncer.dart Utilitaire de debounce (recherche, sauvegarde auto)
+utils/edge_insets_utils.dart Conversion JSON ↔ EdgeInsets
+utils/file_utils.dart Lecture/écriture de fichiers, base64, répertoires
+utils/json_utils.dart Helpers JSON (lecture typée, copie profonde)
+utils/text_style_utils.dart Conversion JSON ↔ TextStyle
+utils/uuid_generator.dart Génération d'identifiants uniques
+
+models/
+
+Modèles de données avec sérialisation JSON. Tous immuables (final, copyWith).
+
+Fichier Rôle
+asset_model.dart Asset (image, police) encodé en base64
+custom_code.dart Code Dart personnalisé (imports, fonctions, classes)
+dependencies.dart Dépendances externes (pub, git, path)
+design_system.dart Couleurs, styles de texte, espacements globaux
+generation_settings.dart Paramètres de génération APK (package, version, orientation...)
+logic_block.dart Bloc logique (type, paramètres) + constantes de types
+navigation_model.dart Page initiale et routes de navigation
+page_model.dart Page (écran) avec arbre de widgets et liaisons logiques
+project_metadata.dart Métadonnées du projet (nom, auteur, dates, miniature)
+project_model.dart Racine du projet, agrège tous les sous-modèles
+variable.dart Variable globale (nom, type, valeur initiale)
+widget_node.dart Nœud de widget (type, propriétés, enfant(s))
+
+services/
+
+Services métier et communication externe.
+
+Fichier Rôle
+compile_service.dart Orchestration de la compilation (interface CompilationBackend, backend GitHub)
+file_download_service.dart Téléchargement de fichiers (APK) avec progression
+github_service.dart Intégration API GitHub (création repo, upload, workflow)
+project_import_export.dart Import/export du format .mub (JSON compressé gzip)
+project_storage.dart Sauvegarde/chargement local des projets (fichiers JSON + index)
+
+providers/
+
+Gestion d'état avec Riverpod.
+
+Fichier Rôle
+design_system_provider.dart Fournit le design system courant et méthodes de modification
+editor_provider.dart État de l'éditeur (sélection, page courante, undo/redo)
+project_provider.dart Liste des projets, projet actif, actions CRUD
+render_engine_provider.dart Fournit un contexte de rendu (design system + variables)
+variable_store.dart Magasin des variables globales et leurs valeurs courantes
+
+render_engine/
+
+Interprète le JSON en widgets Flutter et exécute la logique pour l'aperçu.
+
+Fichier / Dossier Rôle
+json_widget_parser.dart Parseur principal : récursion et construction des widgets
+widget_registry.dart Registre des types de widgets supportés
+render_context.dart Contexte partagé (design system, resolver, parsers, callback setVariable)
+property_parsers/ 
+alignment_parser.dart Convertit les alignements
+color_parser.dart Convertit les couleurs
+edge_insets_parser.dart Convertit les EdgeInsets
+text_style_parser.dart Convertit les styles de texte
+reference_resolver.dart Résout les références @colors, @text_styles, @spacing, @variables
+widget_builders/ Un builder par type de widget (ex: container_builder.dart, text_builder.dart)
+logic_executor/ Exécuteur de blocs logiques
+logic_executor.dart Boucle d'exécution, dispatcher
+block_types/ Implémentations des blocs (show_snackbar, navigate, set_variable, condition, loop, math_operation)
+
+screens/
+
+Écrans de l'application.
+
+Fichier Rôle
+design_tab.dart Onglet Design (toile + palette + inspecteur)
+editor_screen.dart Écran principal de l'éditeur (onglets Design/Logique/Pages)
+export_screen.dart Export / compilation APK
+home_screen.dart Ancien écran d'accueil (remplacé par project_list_screen)
+logic_tab.dart Onglet Logique (variables + événements)
+pages_tab.dart Onglet Pages (gestion des écrans)
+preview_screen.dart Aperçu en direct (exécution locale)
+project_list_screen.dart Liste des projets (écran d'accueil actuel)
+settings_screen.dart Paramètres de l'éditeur
+
+widgets/
+
+Composants d'interface réutilisables.
+
+Fichier Rôle
+canvas_area.dart Zone de rendu interactive (zoom, pan, grille)
+color_picker.dart Sélecteur de couleur (champ hex + dialogue RVB)
+dropdown_input.dart Liste déroulante générique
+icon_picker.dart Sélecteur d'icône Material
+logic_block_editor.dart Éditeur de blocs logiques
+number_input.dart Champ numérique avec validation et slider optionnel
+project_card.dart Carte de projet dans la liste
+property_inspector.dart Panneau d'inspection des propriétés d'un widget
+variable_manager.dart Gestionnaire de variables (liste + CRUD)
+widget_palette.dart Palette de widgets (barre horizontale)
+widget_tree_view.dart Arborescence des widgets
+
+generator/
+
+Transforme le ProjectModel en code Dart Flutter compilable.
+
+Fichier / Dossier Rôle
+code_generator.dart Orchestrateur : appelle PubspecGenerator et ProjectToDart
+project_to_dart.dart Génère main.dart, app_state.dart, pages
+pubspec_generator.dart Génère pubspec.yaml
+widget_code_generators/ Générateurs par widget (ex: container_generator.dart, text_generator.dart)
+widget_code_utils.dart Helpers partagés (couleurs, EdgeInsets, etc.)
+logic_code_generators/ Générateurs de blocs logiques
+code_block_generator.dart Dispatcher central
+set_variable_generator.dart, show_snackbar_generator.dart, etc. Un fichier par bloc
+
+utils/
+
+Ré-export des utilitaires de core/utils pour simplifier les imports.
+
+Fichier Rôle
+debouncer.dart Ré-export de core/utils/debouncer.dart
+file_utils.dart Ré-export de core/utils/file_utils.dart
+json_utils.dart Ré-export de core/utils/json_utils.dart
+uuid_generator.dart Ré-export de core/utils/uuid_generator.dart
+
+---
+
+🛠️ Comment modifier / ajouter des fonctionnalités
+
+Ajouter un nouveau widget
+
+1. Créer le builder dans lib/render_engine/widget_builders/ (ex: monwidget_builder.dart).
+2. Enregistrer le type dans widget_registry.dart.
+3. Ajouter le cas dans json_widget_parser.dart.
+4. Créer le générateur dans lib/generator/widget_code_generators/ (ex: monwidget_generator.dart).
+5. Ajouter le cas dans project_to_dart.dart (import + switch).
+6. Ajouter l'item dans widget_palette.dart (avec icône).
+7. Ajouter les champs dans property_inspector.dart (map _widgetPropertyFields).
+
+Ajouter un nouveau bloc logique
+
+1. Définir le type dans models/logic_block.dart (LogicBlockTypes).
+2. Créer l'exécuteur dans render_engine/logic_executor/block_types/.
+3. Ajouter le case dans render_engine/logic_executor/logic_executor.dart.
+4. Créer le générateur dans generator/logic_code_generators/.
+5. Ajouter le case dans generator/logic_code_generators/code_block_generator.dart.
+6. Mettre à jour l'éditeur dans widgets/logic_block_editor.dart (dialogue de création).
+
+Modifier le modèle de données
+
+· Tous les modèles sont dans lib/models/.
+· Modifiez les champs, fromJson, toJson, copyWith.
+· Si le format JSON change, incrémentez schema_versions.dart et ajoutez une migration.
+
+Modifier le générateur de code
+
+· Les générateurs sont dans lib/generator/.
+· Pour changer la sortie Dart, modifiez project_to_dart.dart ou les fichiers de widget_code_generators/ et logic_code_generators/.
+
+Modifier l'interface utilisateur
+
+· Écrans : lib/screens/.
+· Composants : lib/widgets/.
+· Thème : app.dart et core/constants/app_colors.dart.
+
+---
+
+⚠️ Points d'attention et fichiers obsolètes
+
+Votre arborescence contient des fichiers avec l'extension .bak. Ils proviennent de sauvegardes de votre éditeur et ne sont pas utilisés. Supprimez-les pour un projet propre :
+
+· lib/generator/code_generator.dart.bak
+· lib/generator/project_to_dart.dart.bak
+· lib/generator/logic_code_generators/*.bak
+· lib/render_engine/render_context.dart.bak
+· lib/render_engine/logic_executor/logic_executor.dart.bak
+· lib/render_engine/logic_executor/block_types/*.bak
+· lib/screens/preview_screen.dart.bak
+· lib/services/compile_service.dart.bak
+
+---
+
+🔧 Éléments manquants / à compléter
+
+· Duplication de projet : le service existe, mais l'action n'est pas câblée dans l'UI.
+· Import/export .mub : services prêts, mais boutons UI affichent "à venir".
+· Glisser-déposer dans la toile : ajout via palette uniquement.
+· Intégration de widget_tree_view.dart : non encore placé dans un panneau latéral.
+· Éditeur de blocs avancé : support de if, loop, math_operation dans logic_block_editor.dart à finaliser.
+· Réactivité complète de l'aperçu : vérifier la reconstruction après changement de variable.
+· Tests : les fichiers existent mais doivent être remplis.
+
+---
+
+🧪 Tests
+
+Dans test/ :
+
+· parser_test.dart : tester JsonWidgetParser avec des projets factices.
+· generator_test.dart : tester CodeGenerator et ProjectToDart.
+· import_export_test.dart : tester l'export/import .mub.
+
+Créez des projets de test (ProjectModel.create, ajout de pages/variables) et vérifiez les sorties.
+
+---
+
+Cette documentation vous permettra de naviguer efficacement dans le projet et de le faire évoluer sereinement.

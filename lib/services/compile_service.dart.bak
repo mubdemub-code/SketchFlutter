@@ -1,0 +1,324 @@
+import 'dart:async';
+import 'dart:io';
+
+import '../core/errors/validation_error.dart';
+import '../models/project_model.dart';
+import 'github_service.dart';
+
+/// Interface de génération de code source à partir d'un projet.
+///
+/// Cette interface permet de découpler le service de compilation
+/// du générateur de code (qui sera implémenté dans `generator/`).
+abstract class IProjectCodeGenerator {
+  /// Génère le code source complet du projet.
+  ///
+  /// Retourne une map associant un chemin relatif de fichier (ex: `lib/main.dart`)
+  /// au contenu du fichier.
+  Map<String, String> generate(ProjectModel project);
+}
+
+/// Backend de compilation abstrait.
+///
+/// Permet de brancher différents services de compilation
+/// (GitHub Actions, Render, etc.) via une interface commune.
+abstract class CompilationBackend {
+  /// Compile le projet et retourne le chemin du fichier APK téléchargé.
+  ///
+  /// [project] : le projet à compiler.
+  /// [codeGenerator] : le générateur de code source.
+  /// Retourne un [CompilationResult].
+  Future<CompilationResult> compile(
+    ProjectModel project,
+    IProjectCodeGenerator codeGenerator,
+  );
+}
+
+/// Résultat d'une compilation.
+class CompilationResult {
+  /// Indique si la compilation a réussi.
+  final bool success;
+
+  /// Message informatif ou d'erreur.
+  final String message;
+
+  /// Chemin local de l'APK téléchargé (si succès).
+  final String? apkFilePath;
+
+  /// Identifiant du run (pour GitHub), si applicable.
+  final int? runId;
+
+  /// Constructeur.
+  const CompilationResult({
+    required this.success,
+    required this.message,
+    this.apkFilePath,
+    this.runId,
+  });
+
+  factory CompilationResult.success(String apkFilePath, {int? runId}) {
+    return CompilationResult(
+      success: true,
+      message: 'Compilation réussie',
+      apkFilePath: apkFilePath,
+      runId: runId,
+    );
+  }
+
+  factory CompilationResult.failure(String message) {
+    return CompilationResult(
+      success: false,
+      message: message,
+    );
+  }
+}
+
+/// Backend de compilation utilisant GitHub Actions.
+///
+/// Flux :
+/// 1. Générer le code source du projet.
+/// 2. Créer un dépôt privé sur le compte GitHub de l'utilisateur.
+/// 3. Uploader tous les fichiers (y compris un workflow préconfiguré).
+/// 4. Déclencher le workflow `build_apk.yml`.
+/// 5. Surveiller l'état du run jusqu'à terminaison (succès ou échec).
+/// 6. Télécharger l'artifact APK.
+/// 7. Supprimer le dépôt (optionnel, selon paramètre).
+class GitHubCompilationBackend implements CompilationBackend {
+  /// Service GitHub authentifié.
+  final GitHubService githubService;
+
+  /// Nom de base pour les dépôts créés.
+  final String repoPrefix;
+
+  /// Supprimer le dépôt après la compilation ?
+  final bool cleanupAfterCompile;
+
+  /// Durée maximale d'attente pour la compilation.
+  final Duration timeout;
+
+  /// Intervalle de polling pour vérifier l'état du workflow.
+  final Duration pollInterval;
+
+  /// Constructeur.
+  GitHubCompilationBackend({
+    required this.githubService,
+    this.repoPrefix = 'sketchflutter-build-',
+    this.cleanupAfterCompile = true,
+    this.timeout = const Duration(minutes: 20),
+    this.pollInterval = const Duration(seconds: 15),
+  });
+
+  @override
+  Future<CompilationResult> compile(
+    ProjectModel project,
+    IProjectCodeGenerator codeGenerator,
+  ) async {
+    // 1. Générer le code source
+    Map<String, String> sourceFiles;
+    try {
+      sourceFiles = codeGenerator.generate(project);
+    } catch (e) {
+      return CompilationResult.failure('Erreur de génération du code : $e');
+    }
+
+    if (sourceFiles.isEmpty) {
+      return CompilationResult.failure('Aucun fichier généré');
+    }
+
+    // 2. Créer un dépôt unique
+    final String repoName =
+        '$repoPrefix${project.metadata.projectId}'.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    Map<String, dynamic> repo;
+    try {
+      repo = await githubService.createRepository(
+        repoName: repoName,
+        description: 'Build généré par SketchFlutter pour ${project.metadata.name}',
+        isPrivate: true,
+      );
+    } on GitHubApiException catch (e) {
+      return CompilationResult.failure('Échec de création du dépôt : ${e.message}');
+    }
+
+    final String owner = repo['owner']['login'] as String;
+    final String repoFullName = repo['full_name'] as String;
+
+    try {
+      // 3. Uploader les fichiers du projet
+      for (final entry in sourceFiles.entries) {
+        final path = entry.key;
+        final content = entry.value;
+        await githubService.uploadFile(
+          owner: owner,
+          repo: repoName,
+          filePath: path,
+          content: content,
+          commitMessage: 'Add $path via SketchFlutter',
+        );
+      }
+
+      // 4. Uploader le workflow si non présent dans la génération (sécurité)
+      final workflowContent = _buildWorkflowContent();
+      await githubService.uploadFile(
+        owner: owner,
+        repo: repoName,
+        filePath: '.github/workflows/build_apk.yml',
+        content: workflowContent,
+        commitMessage: 'Add build workflow via SketchFlutter',
+      );
+
+      // 5. Déclencher le workflow
+      final bool dispatched = await githubService.triggerWorkflow(
+        owner: owner,
+        repo: repoName,
+        workflowFileName: 'build_apk.yml',
+      );
+      if (!dispatched) {
+        return CompilationResult.failure('Échec du déclenchement du workflow');
+      }
+
+      // 6. Surveiller le run
+      final int? runId = await _waitForWorkflowCompletion(
+        owner: owner,
+        repo: repoName,
+      );
+      if (runId == null) {
+        return CompilationResult.failure('Workflow introuvable ou timeout');
+      }
+
+      // Vérifier la conclusion du run (succès ou échec) - actuellement on suppose succès si runId trouvé
+      // TODO: Améliorer en vérifiant la conclusion du run via l'API.
+
+      // 7. Télécharger l'APK
+      final Uint8List? apkBytes = await githubService.downloadApkArtifact(
+        owner: owner,
+        repo: repoName,
+        runId: runId,
+      );
+      if (apkBytes == null) {
+        return CompilationResult.failure('Aucun artifact APK trouvé');
+      }
+
+      // 8. Sauvegarder l'APK localement
+      final String apkPath = await _saveApk(apkBytes, project.metadata.name);
+
+      // 9. Optionnellement supprimer le dépôt
+      if (cleanupAfterCompile) {
+        await _deleteRepository(owner: owner, repo: repoName);
+      }
+
+      return CompilationResult.success(apkPath, runId: runId);
+    } on GitHubApiException catch (e) {
+      return CompilationResult.failure('Erreur GitHub : ${e.message}');
+    } catch (e) {
+      return CompilationResult.failure('Erreur inattendue : $e');
+    }
+  }
+
+  /// Génère le contenu du workflow GitHub Actions.
+  String _buildWorkflowContent() {
+    return '''
+name: build_apk
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+''';
+  }
+
+  /// Attend la fin du workflow et retourne le runId.
+  Future<int?> _waitForWorkflowCompletion({
+    required String owner,
+    required String repo,
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      // Récupérer la liste des runs
+      final runs = await _getWorkflowRuns(owner: owner, repo: repo);
+      if (runs.isNotEmpty) {
+        // Prendre le run le plus récent
+        final run = runs.first;
+        final status = run['status'] as String?;
+        final conclusion = run['conclusion'] as String?;
+        if (status == 'completed') {
+          return run['id'] as int?;
+        }
+        if (conclusion != null) {
+          // Si conclusion définie, le run est terminé
+          return run['id'] as int?;
+        }
+      }
+      await Future.delayed(pollInterval);
+    }
+    return null;
+  }
+
+  /// Récupère les runs du workflow.
+  Future<List<Map<String, dynamic>>> _getWorkflowRuns({
+    required String owner,
+    required String repo,
+  }) async {
+    // Cette méthode nécessite un accès supplémentaire dans GitHubService.
+    // Nous ajoutons une méthode simplifiée ici, mais idéalement il faudrait
+    // implémenter une méthode dans GitHubService pour lister les runs.
+    // Pour éviter de trop dépendre, on retourne une liste vide temporairement.
+    // L'implémentation complète sera ajoutée ultérieurement.
+    // TODO: implémenter la vraie récupération des runs via l'API.
+    return [];
+  }
+
+  /// Supprime le dépôt (si le token a les droits).
+  Future<void> _deleteRepository({
+    required String owner,
+    required String repo,
+  }) async {
+    // Implémentation future
+  }
+
+  /// Sauvegarde les bytes APK dans un fichier local.
+  Future<String> _saveApk(Uint8List apkBytes, String projectName) async {
+    // Utiliser path_provider pour le répertoire des documents
+    // Pour l'instant, on utilise le répertoire temporaire
+    final Directory tempDir = await getTemporaryDirectory();
+    final String safeName = projectName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+    final String filePath = '${tempDir.path}/$safeName.apk';
+    await File(filePath).writeAsBytes(apkBytes);
+    return filePath;
+  }
+}
+
+/// Service de compilation central.
+///
+/// Utilise un [CompilationBackend] configuré pour effectuer la compilation.
+/// Fournit une interface simple pour l'écran d'export.
+class CompileService {
+  /// Backend de compilation (GitHub par défaut).
+  final CompilationBackend backend;
+
+  /// Générateur de code source.
+  final IProjectCodeGenerator codeGenerator;
+
+  /// Constructeur.
+  const CompileService({
+    required this.backend,
+    required this.codeGenerator,
+  });
+
+  /// Compile un projet et retourne le résultat.
+  Future<CompilationResult> compile(ProjectModel project) {
+    return backend.compile(project, codeGenerator);
+  }
+}

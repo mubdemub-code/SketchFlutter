@@ -1,0 +1,46 @@
+import '../models/project_model.dart';
+import 'property_parsers/color_parser.dart';
+import 'property_parsers/edge_insets_parser.dart';
+import 'property_parsers/alignment_parser.dart';
+import 'property_parsers/text_style_parser.dart';
+import 'property_parsers/reference_resolver.dart';
+
+/// Contexte partagé pour le moteur de rendu.
+///
+/// Regroupe le projet (pour le design system et les assets), les parsers
+/// et le resolver. Fournit des méthodes pratiques pour générer les widgets.
+class RenderContext {
+  final ProjectModel project;
+  final ReferenceResolver resolver;
+  final ColorParser colorParser;
+  final EdgeInsetsParser edgeInsetsParser;
+  final AlignmentParser alignmentParser;
+  final TextStyleParser textStyleParser;
+
+  RenderContext({
+    required this.project,
+    required Map<String, dynamic> variables,
+  }) : resolver = ReferenceResolver(
+          designSystem: project.designSystem,
+          variables: variables,
+        ),
+        colorParser = ColorParser(ReferenceResolver(
+          designSystem: project.designSystem,
+          variables: variables,
+        )),
+        edgeInsetsParser = EdgeInsetsParser(ReferenceResolver(
+          designSystem: project.designSystem,
+          variables: variables,
+        )),
+        alignmentParser = const AlignmentParser(),
+        textStyleParser = TextStyleParser(
+          colorParser: ColorParser(ReferenceResolver(
+            designSystem: project.designSystem,
+            variables: variables,
+          )),
+          resolver: ReferenceResolver(
+            designSystem: project.designSystem,
+            variables: variables,
+          ),
+        );
+}

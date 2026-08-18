@@ -1,0 +1,20 @@
+import '../../../models/logic_block.dart';
+import '../../render_context.dart';
+
+class SetVariableBlock {
+  static void execute(LogicBlock block, RenderContext context) {
+    final variableId = block.getStringParameter('variable_id') ?? '';
+    final value = block.getParameter('value');
+
+    if (variableId.isEmpty) return;
+
+    // Résoudre la valeur si c'est une référence.
+    dynamic resolvedValue = context.resolver.resolveVariableValue(value);
+
+    // Mettre à jour la valeur dans le resolver (et donc dans le provider).
+    // Note : le RenderContext ne contient pas de méthode pour modifier les variables.
+    // Il faudrait passer un callback de mise à jour.
+    // Pour l'instant, on ne fait rien ; l'implémentation complète devra être
+    // connectée au provider VariableStore.
+  }
+}

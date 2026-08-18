@@ -1,0 +1,42 @@
+# Workflow GitHub Actions pour compiler un projet Flutter en APK.
+# Déclenché manuellement (workflow_dispatch) via l'API GitHub.
+
+name: build_apk
+
+on:
+  workflow_dispatch:          # Permet le déclenchement manuel depuis l'interface ou l'API
+
+jobs:
+  build:
+    runs-on: ubuntu-latest    # Utilise une machine virtuelle Ubuntu
+
+    steps:
+      # 1. Récupérer le code source du dépôt
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Installer Flutter avec la version stable
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'   # Version de Flutter à utiliser
+          channel: 'stable'           # Canal stable
+
+      # 3. Vérifier la version de Flutter (optionnel, pour le diagnostic)
+      - name: Verify Flutter version
+        run: flutter --version
+
+      # 4. Installer les dépendances du projet
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 5. Compiler l'APK en mode release
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 6. Téléverser l'APK généré en tant qu'artifact
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

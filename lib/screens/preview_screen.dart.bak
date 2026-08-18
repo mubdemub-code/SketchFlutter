@@ -1,0 +1,719 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../core/constants/app_colors.dart';
+import '../core/constants/app_strings.dart';
+import '../core/utils/color_utils.dart';
+import '../core/utils/edge_insets_utils.dart';
+import '../core/utils/text_style_utils.dart';
+import '../core/utils/alignment_utils.dart';
+import '../models/logic_block.dart';
+import '../models/page_model.dart';
+import '../models/project_model.dart';
+import '../models/widget_node.dart';
+import '../providers/project_provider.dart';
+import '../providers/variable_store.dart';
+
+/// Écran d'aperçu en direct du projet.
+///
+/// Permet de tester l'application générée sans compilation : l'interface est
+/// interprétée à partir du JSON du projet et les événements basiques sont
+/// exécutés localement.
+///
+/// Fonctionnalités supportées :
+///   - rendu des widgets courants (Container, Text, Row, Column, Button, etc.)
+///   - exécution des événements onPressed, onTap, onChanged
+///   - blocs logiques : show_snackbar, navigate_to, set_variable
+///   - navigation interne entre pages
+///   - réactivité aux variables globales
+///
+/// L'utilisateur peut quitter l'aperçu via le bouton retour de l'AppBar.
+class PreviewScreen extends ConsumerStatefulWidget {
+  const PreviewScreen({super.key});
+
+  @override
+  ConsumerState<PreviewScreen> createState() => _PreviewScreenState();
+}
+
+class _PreviewScreenState extends ConsumerState<PreviewScreen> {
+  /// Pile de navigation interne (pour les navigate_to).
+  final List<String> _pageStack = [];
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialiser la pile avec la page initiale du projet.
+    final project = ref.read(activeProjectProvider);
+    if (project != null) {
+      final initialPageId = project.navigation.initialPageId;
+      if (initialPageId.isNotEmpty) {
+        _pageStack.add(initialPageId);
+      } else if (project.pages.isNotEmpty) {
+        _pageStack.add(project.pages.first.id);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final project = ref.watch(activeProjectProvider);
+    if (project == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text(AppStrings.previewTitle)),
+        body: const Center(child: Text('Aucun projet actif')),
+      );
+    }
+
+    // Observer les valeurs des variables pour la réactivité.
+    final variableState = ref.watch(variableStoreProvider);
+    final currentValues = variableState.currentValues;
+
+    // Déterminer la page courante.
+    if (_pageStack.isEmpty) {
+      // Si la pile est vide (par exemple après un retour), on revient à la page initiale.
+      final initial = project.navigation.initialPageId;
+      if (initial.isNotEmpty) _pageStack.add(initial);
+    }
+    final currentPageId = _pageStack.isNotEmpty ? _pageStack.last : null;
+    if (currentPageId == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text(AppStrings.previewTitle)),
+        body: const Center(child: Text('Aucune page définie')),
+      );
+    }
+
+    final page = project.getPageById(currentPageId);
+    if (page == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text(AppStrings.previewTitle)),
+        body: const Center(child: Text('Page introuvable')),
+      );
+    }
+
+    // Construire le widget de la page avec le builder qui gère les événements.
+    final previewBuilder = _PreviewBuilder(
+      page: page,
+      project: project,
+      variableValues: currentValues,
+      onEvent: (eventName) => _executeEvent(page, eventName),
+    );
+
+    // Le builder construit le widget racine de la page. Si la racine est un
+    // Scaffold, on l'utilise directement ; sinon on l'enveloppe dans un Scaffold
+    // avec une AppBar de l'aperçu.
+    final Widget rootWidget = previewBuilder.build(page.rootWidget);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${AppStrings.previewTitle} - ${page.name}'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        actions: [
+          // Bouton retour pour la navigation interne.
+          if (_pageStack.length > 1)
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () {
+                setState(() {
+                  _pageStack.removeLast();
+                });
+              },
+            ),
+        ],
+      ),
+      body: rootWidget,
+    );
+  }
+
+  /// Exécute la liste des blocs associés à un événement.
+  /// [page] : la page courante.
+  /// [eventName] : nom de l'événement (ex: onPressed, onTap).
+  void _executeEvent(PageModel page, String eventName) {
+    // Récupérer les liaisons logiques de la page.
+    final bindings = page.logicBindings;
+    if (bindings == null) return;
+
+    // Trouver les blocs pour cet événement sur le widget qui a déclenché l'événement.
+    // Pour simplifier, on suppose que l'événement est lié à un widget précis.
+    // Le builder appellera _executeEvent avec le widgetId en plus ? Idéalement,
+    // on passerait le widgetId. Ici, la signature ne le permet pas. On pourrait
+    // modifier le builder pour passer le widgetId, mais pour l'instant on ne
+    // gère que les cas où un seul widget a cet événement.
+    // Nous allons chercher la première occurrence de l'événement dans les bindings.
+    List<Map<String, dynamic>>? blocks;
+    bindings.forEach((widgetId, events) {
+      if (events.containsKey(eventName)) {
+        blocks = events[eventName];
+      }
+    });
+    if (blocks == null) return;
+
+    // Exécuter chaque bloc séquentiellement.
+    for (final blockJson in blocks) {
+      final block = LogicBlock.fromJson(blockJson);
+      _executeBlock(block);
+    }
+  }
+
+  /// Exécute un bloc logique unique.
+  void _executeBlock(LogicBlock block) {
+    switch (block.type) {
+      case LogicBlockTypes.showSnackbar:
+        final message = block.getStringParameter('message') ?? '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+        break;
+
+      case LogicBlockTypes.navigateTo:
+        final targetPageId = block.getStringParameter('page_id') ?? '';
+        if (targetPageId.isNotEmpty) {
+          setState(() {
+            _pageStack.add(targetPageId);
+          });
+        }
+        break;
+
+      case LogicBlockTypes.setVariable:
+        final variableId = block.getStringParameter('variable_id') ?? '';
+        final value = block.getParameter('value');
+        if (variableId.isNotEmpty) {
+          // Convertir la valeur selon le type de la variable si possible.
+          final variable = ref.read(variableStoreProvider.notifier)
+              .getVariableById(variableId);
+          dynamic convertedValue = value;
+          if (variable != null && value is String) {
+            switch (variable.type) {
+              case VariableType.int:
+                convertedValue = int.tryParse(value);
+                break;
+              case VariableType.double:
+                convertedValue = double.tryParse(value);
+                break;
+              case VariableType.bool:
+                convertedValue = value.toLowerCase() == 'true';
+                break;
+              case VariableType.string:
+                convertedValue = value;
+                break;
+              default:
+                convertedValue = value;
+            }
+          }
+          ref.read(variableStoreProvider.notifier).setValue(variableId, convertedValue);
+        }
+        break;
+
+      default:
+        // Bloc non supporté pour l'instant.
+        break;
+    }
+  }
+}
+
+/// Builder récursif qui convertit un [WidgetNode] en widget Flutter,
+/// en tenant compte des variables et des événements.
+class _PreviewBuilder {
+  final PageModel page;
+  final ProjectModel project;
+  final Map<String, dynamic> variableValues;
+  final ValueChanged<String> onEvent;
+
+  const _PreviewBuilder({
+    required this.page,
+    required this.project,
+    required this.variableValues,
+    required this.onEvent,
+  });
+
+  /// Construit le widget pour un nœud donné.
+  Widget build(WidgetNode node) {
+    final type = node.type;
+    final props = node.properties ?? {};
+    final child = node.child;
+    final children = node.children;
+
+    switch (type) {
+      case 'Scaffold':
+        return _buildScaffold(node);
+      case 'Container':
+        return _buildContainer(node);
+      case 'Text':
+        return _buildText(node);
+      case 'Row':
+        return _buildRow(node);
+      case 'Column':
+        return _buildColumn(node);
+      case 'Button':
+      case 'ElevatedButton':
+      case 'TextButton':
+      case 'OutlinedButton':
+        return _buildButton(node);
+      case 'Image':
+        return _buildImage(node);
+      case 'Icon':
+        return _buildIcon(node);
+      case 'TextField':
+        return _buildTextField(node);
+      case 'Checkbox':
+        return _buildCheckbox(node);
+      case 'Switch':
+        return _buildSwitch(node);
+      case 'Slider':
+        return _buildSlider(node);
+      case 'ListView':
+        return _buildListView(node);
+      case 'GridView':
+        return _buildGridView(node);
+      case 'ListTile':
+        return _buildListTile(node);
+      case 'AppBar':
+        return _buildAppBar(node);
+      case 'SizedBox':
+        return _buildSizedBox(node);
+      case 'Padding':
+        return _buildPadding(node);
+      case 'Center':
+        return _buildCenter(node);
+      default:
+        return Container(
+          padding: const EdgeInsets.all(8),
+          color: Colors.grey.shade200,
+          child: Text('Widget inconnu: $type'),
+        );
+    }
+  }
+
+  // --- Résolution des valeurs et références ---
+
+  /// Résout une valeur potentiellement une référence @variables.xxx.
+  dynamic _resolveValue(dynamic value) {
+    if (value is String && value.startsWith('@variables.')) {
+      final varId = value.substring('@variables.'.length);
+      return variableValues[varId];
+    }
+    return value;
+  }
+
+  /// Résout une couleur (peut être une référence @colors.xxx).
+  Color? _resolveColor(dynamic value) {
+    if (value == null) return null;
+    if (value is String) {
+      if (value.startsWith('@colors.')) {
+        final colorName = value.substring('@colors.'.length);
+        final hex = project.designSystem.colors[colorName];
+        if (hex != null) return ColorUtils.parseColor(hex);
+        return null;
+      }
+      return ColorUtils.parseColor(value);
+    }
+    return null;
+  }
+
+  /// Résout un style de texte (peut être une référence @text_styles.xxx).
+  TextStyle? _resolveTextStyle(dynamic value) {
+    if (value == null) return null;
+    if (value is String && value.startsWith('@text_styles.')) {
+      final styleName = value.substring('@text_styles.'.length);
+      final styleMap = project.designSystem.textStyles[styleName];
+      if (styleMap != null) {
+        return TextStyleUtils.parseTextStyle(styleMap,
+            designSystem: {'text_styles': project.designSystem.textStyles, 'colors': project.designSystem.colors});
+      }
+      return null;
+    }
+    if (value is Map<String, dynamic>) {
+      return TextStyleUtils.parseTextStyle(value,
+          designSystem: {'text_styles': project.designSystem.textStyles, 'colors': project.designSystem.colors});
+    }
+    return null;
+  }
+
+  // --- Constructeurs spécifiques ---
+
+  Widget _buildScaffold(WidgetNode node) {
+    final props = node.properties ?? {};
+    final backgroundColor = _resolveColor(props['backgroundColor']) ?? Colors.white;
+    final appBarNode = _findChildByType(node, 'AppBar');
+    final bodyNode = _findChildNotType(node, 'AppBar');
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      appBar: appBarNode != null ? build(appBarNode) as PreferredSizeWidget : null,
+      body: bodyNode != null ? build(bodyNode) : null,
+    );
+  }
+
+  Widget _buildContainer(WidgetNode node) {
+    final props = node.properties ?? {};
+    final color = _resolveColor(props['color']);
+    final width = _parseDoubleOrNull(props['width']);
+    final height = _parseDoubleOrNull(props['height']);
+    final padding = EdgeInsetsUtils.parseEdgeInsets(props['padding']);
+    final margin = EdgeInsetsUtils.parseEdgeInsets(props['margin']);
+    final alignment = AlignmentUtils.parseAlignment(props['alignment'] as String?);
+    final borderRadius = _parseDoubleOrNull(props['borderRadius']);
+    final childNode = node.child;
+
+    return Container(
+      width: width,
+      height: height,
+      padding: padding,
+      margin: margin,
+      alignment: alignment,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: borderRadius != null ? BorderRadius.circular(borderRadius) : null,
+      ),
+      child: childNode != null ? build(childNode) : null,
+    );
+  }
+
+  Widget _buildText(WidgetNode node) {
+    final props = node.properties ?? {};
+    final rawData = props['data'];
+    final data = _resolveValue(rawData)?.toString() ?? '';
+    final style = _resolveTextStyle(props['style']) ?? TextStyleUtils.parseTextStyle(props);
+    final textAlign = _parseTextAlign(props['textAlign']);
+    final maxLines = props['maxLines'] as int?;
+    final overflow = _parseTextOverflow(props['overflow']);
+
+    return Text(
+      data,
+      style: style,
+      textAlign: textAlign,
+      maxLines: maxLines,
+      overflow: overflow,
+    );
+  }
+
+  Widget _buildRow(WidgetNode node) {
+    final props = node.properties ?? {};
+    final children = node.children ?? [];
+    return Row(
+      mainAxisAlignment: _parseMainAxisAlignment(props['mainAxisAlignment']),
+      crossAxisAlignment: _parseCrossAxisAlignment(props['crossAxisAlignment']),
+      mainAxisSize: props['mainAxisSize'] == 'min' ? MainAxisSize.min : MainAxisSize.max,
+      children: children.map((child) => build(child)).toList(),
+    );
+  }
+
+  Widget _buildColumn(WidgetNode node) {
+    final props = node.properties ?? {};
+    final children = node.children ?? [];
+    return Column(
+      mainAxisAlignment: _parseMainAxisAlignment(props['mainAxisAlignment']),
+      crossAxisAlignment: _parseCrossAxisAlignment(props['crossAxisAlignment']),
+      mainAxisSize: props['mainAxisSize'] == 'min' ? MainAxisSize.min : MainAxisSize.max,
+      children: children.map((child) => build(child)).toList(),
+    );
+  }
+
+  Widget _buildButton(WidgetNode node) {
+    final props = node.properties ?? {};
+    final text = props['text']?.toString() ?? props['data']?.toString() ?? 'Bouton';
+    final buttonType = props['buttonType']?.toString() ?? 'elevated';
+    final color = _resolveColor(props['color']) ?? AppColors.accent;
+    final textColor = _resolveColor(props['textColor']) ?? Colors.white;
+    final child = node.child != null ? build(node.child!) : Text(text);
+    final onPressed = () => onEvent('onPressed');
+
+    switch (buttonType) {
+      case 'text':
+        return TextButton(
+          onPressed: onPressed,
+          child: child,
+        );
+      case 'outlined':
+        return OutlinedButton(
+          onPressed: onPressed,
+          child: child,
+        );
+      default:
+        return ElevatedButton(
+          onPressed: onPressed,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: color,
+            foregroundColor: textColor,
+          ),
+          child: child,
+        );
+    }
+  }
+
+  Widget _buildImage(WidgetNode node) {
+    final props = node.properties ?? {};
+    final src = _resolveValue(props['src'])?.toString();
+    if (src == null) {
+      return Container(
+        color: Colors.grey.shade300,
+        height: 100,
+        width: 100,
+        child: const Icon(Icons.image, color: Colors.grey),
+      );
+    }
+    if (src.startsWith('http://') || src.startsWith('https://')) {
+      return Image.network(src, width: _parseDoubleOrNull(props['width']), height: _parseDoubleOrNull(props['height']), fit: _parseBoxFit(props['fit']));
+    }
+    // Asset non supporté pour l'instant
+    return Container(
+      color: Colors.grey.shade300,
+      height: 100,
+      width: 100,
+      child: const Icon(Icons.image, color: Colors.grey),
+    );
+  }
+
+  Widget _buildIcon(WidgetNode node) {
+    final props = node.properties ?? {};
+    final iconName = _resolveValue(props['icon'])?.toString() ?? 'circle';
+    final iconData = _getIconData(iconName);
+    final color = _resolveColor(props['color']) ?? Colors.black;
+    final size = _parseDoubleOrNull(props['size']) ?? 24;
+    return Icon(iconData, color: color, size: size);
+  }
+
+  Widget _buildTextField(WidgetNode node) {
+    final props = node.properties ?? {};
+    final hintText = _resolveValue(props['hintText'])?.toString();
+    final obscureText = props['obscureText'] as bool? ?? false;
+    final keyboardType = _parseKeyboardType(props['keyboardType']);
+    final maxLines = props['maxLines'] as int? ?? 1;
+    return TextField(
+      decoration: InputDecoration(hintText: hintText),
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      onChanged: (_) => onEvent('onChanged'),
+      onSubmitted: (_) => onEvent('onSubmitted'),
+    );
+  }
+
+  Widget _buildCheckbox(WidgetNode node) {
+    final props = node.properties ?? {};
+    final rawValue = props['value'];
+    final value = _resolveValue(rawValue) as bool? ?? false;
+    return Checkbox(
+      value: value,
+      onChanged: (newValue) {
+        // Mettre à jour la variable liée si props['value'] est une référence @variables.
+        if (rawValue is String && rawValue.startsWith('@variables.')) {
+          final varId = rawValue.substring('@variables.'.length);
+          // Ici on ne peut pas modifier directement la variable sans passer par le provider.
+          // On pourrait appeler un callback spécial, mais pour l'instant on ignore.
+        }
+        onEvent('onChanged');
+      },
+    );
+  }
+
+  Widget _buildSwitch(WidgetNode node) {
+    final props = node.properties ?? {};
+    final rawValue = props['value'];
+    final value = _resolveValue(rawValue) as bool? ?? false;
+    return Switch(
+      value: value,
+      onChanged: (newValue) {
+        onEvent('onChanged');
+      },
+    );
+  }
+
+  Widget _buildSlider(WidgetNode node) {
+    final props = node.properties ?? {};
+    final min = _parseDoubleOrNull(props['min']) ?? 0;
+    final max = _parseDoubleOrNull(props['max']) ?? 100;
+    final rawValue = props['value'];
+    final value = _resolveValue(rawValue) as double? ?? min;
+    return Slider(
+      value: value.clamp(min, max),
+      min: min,
+      max: max,
+      onChanged: (newValue) => onEvent('onChanged'),
+    );
+  }
+
+  Widget _buildListView(WidgetNode node) {
+    final props = node.properties ?? {};
+    final children = node.children ?? [];
+    return ListView(
+      scrollDirection: props['scrollDirection'] == 'horizontal' ? Axis.horizontal : Axis.vertical,
+      padding: EdgeInsetsUtils.parseEdgeInsets(props['padding']) ?? EdgeInsets.zero,
+      reverse: props['reverse'] as bool? ?? false,
+      children: children.map((child) => build(child)).toList(),
+    );
+  }
+
+  Widget _buildGridView(WidgetNode node) {
+    final props = node.properties ?? {};
+    final crossAxisCount = props['crossAxisCount'] as int? ?? 2;
+    final children = node.children ?? [];
+    return GridView.count(
+      crossAxisCount: crossAxisCount,
+      children: children.map((child) => build(child)).toList(),
+    );
+  }
+
+  Widget _buildListTile(WidgetNode node) {
+    final props = node.properties ?? {};
+    final titleText = _resolveValue(props['title'])?.toString() ?? '';
+    final subtitleText = _resolveValue(props['subtitle'])?.toString();
+    return ListTile(
+      title: Text(titleText),
+      subtitle: subtitleText != null ? Text(subtitleText) : null,
+      onTap: () => onEvent('onTap'),
+    );
+  }
+
+  Widget _buildAppBar(WidgetNode node) {
+    final props = node.properties ?? {};
+    final title = _resolveValue(props['title'])?.toString() ?? '';
+    final backgroundColor = _resolveColor(props['backgroundColor']) ?? AppColors.accent;
+    return AppBar(
+      title: Text(title),
+      backgroundColor: backgroundColor,
+    );
+  }
+
+  Widget _buildSizedBox(WidgetNode node) {
+    final props = node.properties ?? {};
+    final width = _parseDoubleOrNull(props['width']);
+    final height = _parseDoubleOrNull(props['height']);
+    final child = node.child != null ? build(node.child!) : null;
+    return SizedBox(width: width, height: height, child: child);
+  }
+
+  Widget _buildPadding(WidgetNode node) {
+    final props = node.properties ?? {};
+    final padding = EdgeInsetsUtils.parseEdgeInsets(props['padding']) ?? EdgeInsets.zero;
+    final child = node.child != null ? build(node.child!) : null;
+    return Padding(padding: padding, child: child);
+  }
+
+  Widget _buildCenter(WidgetNode node) {
+    final child = node.child != null ? build(node.child!) : null;
+    return Center(child: child);
+  }
+
+  // --- Helpers ---
+
+  WidgetNode? _findChildByType(WidgetNode node, String type) {
+    if (node.child?.type == type) return node.child;
+    if (node.children != null) {
+      for (final child in node.children!) {
+        if (child.type == type) return child;
+      }
+    }
+    return null;
+  }
+
+  WidgetNode? _findChildNotType(WidgetNode node, String type) {
+    if (node.child?.type != type) return node.child;
+    if (node.children != null) {
+      for (final child in node.children!) {
+        if (child.type != type) return child;
+      }
+    }
+    return null;
+  }
+
+  double? _parseDoubleOrNull(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  MainAxisAlignment _parseMainAxisAlignment(dynamic value) {
+    switch (value?.toString()) {
+      case 'center': return MainAxisAlignment.center;
+      case 'end': return MainAxisAlignment.end;
+      case 'spaceBetween': return MainAxisAlignment.spaceBetween;
+      case 'spaceAround': return MainAxisAlignment.spaceAround;
+      case 'spaceEvenly': return MainAxisAlignment.spaceEvenly;
+      case 'start':
+      default:
+        return MainAxisAlignment.start;
+    }
+  }
+
+  CrossAxisAlignment _parseCrossAxisAlignment(dynamic value) {
+    switch (value?.toString()) {
+      case 'center': return CrossAxisAlignment.center;
+      case 'end': return CrossAxisAlignment.end;
+      case 'stretch': return CrossAxisAlignment.stretch;
+      case 'start':
+      default:
+        return CrossAxisAlignment.start;
+    }
+  }
+
+  TextAlign? _parseTextAlign(dynamic value) {
+    switch (value?.toString()) {
+      case 'left': return TextAlign.left;
+      case 'right': return TextAlign.right;
+      case 'center': return TextAlign.center;
+      case 'justify': return TextAlign.justify;
+      default: return null;
+    }
+  }
+
+  TextOverflow? _parseTextOverflow(dynamic value) {
+    switch (value?.toString()) {
+      case 'ellipsis': return TextOverflow.ellipsis;
+      case 'fade': return TextOverflow.fade;
+      case 'clip': return TextOverflow.clip;
+      default: return null;
+    }
+  }
+
+  BoxFit? _parseBoxFit(dynamic value) {
+    switch (value?.toString()) {
+      case 'cover': return BoxFit.cover;
+      case 'contain': return BoxFit.contain;
+      case 'fill': return BoxFit.fill;
+      case 'scaleDown': return BoxFit.scaleDown;
+      default: return null;
+    }
+  }
+
+  TextInputType _parseKeyboardType(dynamic value) {
+    switch (value?.toString()) {
+      case 'number': return TextInputType.number;
+      case 'email': return TextInputType.emailAddress;
+      case 'phone': return TextInputType.phone;
+      default: return TextInputType.text;
+    }
+  }
+
+  IconData _getIconData(String name) {
+    const map = {
+      'home': Icons.home,
+      'favorite': Icons.favorite,
+      'star': Icons.star,
+      'person': Icons.person,
+      'settings': Icons.settings,
+      'search': Icons.search,
+      'add': Icons.add,
+      'delete': Icons.delete,
+      'edit': Icons.edit,
+      'check': Icons.check,
+      'close': Icons.close,
+      'menu': Icons.menu,
+      'share': Icons.share,
+      'download': Icons.download,
+      'upload': Icons.upload,
+      'refresh': Icons.refresh,
+      'info': Icons.info,
+      'warning': Icons.warning,
+      'error': Icons.error,
+      'help': Icons.help,
+      'notifications': Icons.notifications,
+      'email': Icons.email,
+      'phone': Icons.phone,
+      'camera': Icons.camera,
+      'image': Icons.image,
+    };
+    return map[name] ?? Icons.circle;
+  }
+}
