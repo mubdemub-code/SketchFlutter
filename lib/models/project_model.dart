@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/constants/schema_versions.dart';
 import '../core/errors/validation_error.dart';
 import '../core/utils/json_utils.dart';
@@ -18,40 +20,20 @@ import 'generation_settings.dart';
 /// de génération). Il est sérialisable en JSON et constitue la structure de
 /// sauvegarde et d'échange (fichier `.mub`).
 ///
-/// La classe est immuable ; utilisez [copyWith] pour créer des copies modifiées
-/// et [deepCopy] pour un clonage complet.
+/// **Nouveau** : La création d'un projet ajoute automatiquement une page
+/// d'accueil par défaut pour éviter les projets vides.
 class ProjectModel {
-  /// Version du schéma JSON (doit correspondre à [SchemaVersions.currentVersion]).
   final String schemaVersion;
-
-  /// Métadonnées du projet.
   final ProjectMetadata metadata;
-
-  /// Design system global (couleurs, styles de texte, espacements).
   final DesignSystem designSystem;
-
-  /// Liste des pages de l'application.
   final List<PageModel> pages;
-
-  /// Liste des variables globales.
   final List<Variable> variables;
-
-  /// Liste des assets (images, polices, etc.).
   final List<AssetModel> assets;
-
-  /// Configuration de navigation.
   final NavigationModel navigation;
-
-  /// Dépendances externes (packages Flutter).
   final Dependencies dependencies;
-
-  /// Code Dart personnalisé.
   final CustomCode customCode;
-
-  /// Paramètres de génération de l'APK.
   final GenerationSettings generationSettings;
 
-  /// Constructeur principal.
   const ProjectModel({
     required this.schemaVersion,
     required this.metadata,
@@ -65,12 +47,12 @@ class ProjectModel {
     required this.generationSettings,
   });
 
-  /// Crée un nouveau projet vide avec des valeurs par défaut.
+  /// Crée un nouveau projet avec une page d'accueil par défaut.
   ///
-  /// [name] : nom du projet.
+  /// [name] : nom du projet (obligatoire).
   /// [description] : description optionnelle.
   /// [author] : auteur optionnel.
-  /// [packageName] : nom de package Android (si null, généré à partir du nom).
+  /// [packageName] : nom de package Android (généré si null).
   factory ProjectModel.create({
     required String name,
     String? description,
@@ -83,21 +65,30 @@ class ProjectModel {
       author: author,
     );
 
-    // Générer un nom de package par défaut si non fourni
+    // Générer un nom de package par défaut
     String defaultPackage = packageName ?? _generatePackageName(name);
-    if (packageName == null || packageName.trim().isEmpty) {
+    if (defaultPackage.trim().isEmpty) {
       defaultPackage = _generatePackageName(name);
     }
+
+    // Créer une page d'accueil par défaut
+    final homePage = PageModel.create(
+      name: 'Accueil',
+      isInitial: true,
+    );
+
+    debugPrint('🆕 [ProjectModel] Création du projet "${name}"');
+    debugPrint('   Page initiale: ${homePage.id}');
 
     return ProjectModel(
       schemaVersion: SchemaVersions.currentVersion,
       metadata: metadata,
       designSystem: DesignSystem.defaults(),
-      pages: [],
+      pages: [homePage],                    // <-- Page ajoutée
       variables: [],
       assets: [],
       navigation: NavigationModel(
-        initialPageId: '', // sera mis à jour quand la première page sera ajoutée
+        initialPageId: homePage.id,         // <-- ID défini
       ),
       dependencies: Dependencies(),
       customCode: CustomCode(),
@@ -110,8 +101,7 @@ class ProjectModel {
   /// Crée une instance à partir d'une map JSON.
   ///
   /// [json] : la map contenant les données du projet.
-  /// Si la version du schéma est plus ancienne, une migration est tentée via
-  /// [SchemaVersions.migrate].
+  /// Si la version du schéma est plus ancienne, une migration est tentée.
   ///
   /// Lève une [ValidationError] en cas de champ manquant ou invalide.
   factory ProjectModel.fromJson(Map<String, dynamic> json) {
@@ -123,7 +113,6 @@ class ProjectModel {
         data = SchemaVersions.migrate(data);
       }
     } else {
-      // Si pas de version, on suppose que c'est un projet très ancien -> erreur
       throw ValidationError.missingField('schema_version', path: 'project');
     }
 
@@ -227,7 +216,7 @@ class ProjectModel {
     if (navJson != null) {
       navigation = NavigationModel.fromJson(navJson);
     } else {
-      // Si pas de navigation, on peut essayer de la déduire des pages (première page initiale)
+      // Déduire de la première page initiale ou de la première page
       String initialPageId = '';
       for (final page in pages) {
         if (page.isInitial) {
@@ -265,10 +254,13 @@ class ProjectModel {
     if (genSettingsJson != null) {
       generationSettings = GenerationSettings.fromJson(genSettingsJson);
     } else {
-      // Valeurs par défaut dérivées du projet
       final String defaultPackage = _generatePackageName(metadata.name);
       generationSettings = GenerationSettings.create(packageName: defaultPackage);
     }
+
+    debugPrint('📂 [ProjectModel] Projet chargé: ${metadata.name}');
+    debugPrint('   Pages: ${pages.length}');
+    debugPrint('   Page initiale: ${navigation.initialPageId}');
 
     return ProjectModel(
       schemaVersion: SchemaVersions.currentVersion,
@@ -343,10 +335,6 @@ class ProjectModel {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Méthodes utilitaires
-  // ---------------------------------------------------------------------------
-
   /// Récupère une page par son identifiant.
   PageModel? getPageById(String pageId) {
     for (final page in pages) {
@@ -360,18 +348,15 @@ class ProjectModel {
     for (final page in pages) {
       if (page.id == navigation.initialPageId) return page;
     }
-    // Fallback : première page marquée comme initiale
     for (final page in pages) {
       if (page.isInitial) return page;
     }
-    // Fallback : première page tout court
     return pages.isNotEmpty ? pages.first : null;
   }
 
   /// Ajoute une page et retourne une nouvelle instance du projet.
   ProjectModel addPage(PageModel page) {
     final newPages = List<PageModel>.from(pages)..add(page);
-    // Si c'est la première page, on définit la navigation initiale
     if (pages.isEmpty && navigation.initialPageId.isEmpty) {
       return copyWith(
         pages: newPages,
@@ -382,8 +367,6 @@ class ProjectModel {
   }
 
   /// Supprime une page par son identifiant.
-  /// Retourne une nouvelle instance ; si la page était la page initiale,
-  /// la première page restante devient la nouvelle initiale.
   ProjectModel removePage(String pageId) {
     final newPages = pages.where((p) => p.id != pageId).toList();
     String newInitialId = navigation.initialPageId;
@@ -404,19 +387,17 @@ class ProjectModel {
     return null;
   }
 
-  /// Ajoute une variable et retourne une nouvelle instance.
+  /// Ajoute une variable.
   ProjectModel addVariable(Variable variable) {
-    final newVariables = List<Variable>.from(variables)..add(variable);
-    return copyWith(variables: newVariables);
+    return copyWith(variables: [...variables, variable]);
   }
 
-  /// Supprime une variable par son identifiant.
+  /// Supprime une variable.
   ProjectModel removeVariable(String variableId) {
-    final newVariables = variables.where((v) => v.id != variableId).toList();
-    return copyWith(variables: newVariables);
+    return copyWith(variables: variables.where((v) => v.id != variableId).toList());
   }
 
-  /// Récupère un asset par son identifiant.
+  /// Récupère un asset.
   AssetModel? getAssetById(String assetId) {
     for (final asset in assets) {
       if (asset.id == assetId) return asset;
@@ -424,19 +405,17 @@ class ProjectModel {
     return null;
   }
 
-  /// Ajoute un asset et retourne une nouvelle instance.
+  /// Ajoute un asset.
   ProjectModel addAsset(AssetModel asset) {
-    final newAssets = List<AssetModel>.from(assets)..add(asset);
-    return copyWith(assets: newAssets);
+    return copyWith(assets: [...assets, asset]);
   }
 
-  /// Supprime un asset par son identifiant.
+  /// Supprime un asset.
   ProjectModel removeAsset(String assetId) {
-    final newAssets = assets.where((a) => a.id != assetId).toList();
-    return copyWith(assets: newAssets);
+    return copyWith(assets: assets.where((a) => a.id != assetId).toList());
   }
 
-  /// Vérifie si le projet est valide (schéma cohérent, pages présentes, etc.).
+  /// Vérifie la validité du projet.
   bool isValid() {
     return schemaVersion == SchemaVersions.currentVersion &&
         metadata.isValid() &&
@@ -449,13 +428,8 @@ class ProjectModel {
   String toString() =>
       'ProjectModel(version: $schemaVersion, name: ${metadata.name}, pages: ${pages.length})';
 
-  // ---------------------------------------------------------------------------
-  // Helper privé
-  // ---------------------------------------------------------------------------
-
-  /// Génère un nom de package Android valide à partir du nom du projet.
+  /// Génère un nom de package Android valide.
   static String _generatePackageName(String projectName) {
-    // Normaliser : minuscules, remplacer espaces et caractères invalides par des underscores
     String normalized = projectName.toLowerCase().trim();
     normalized = normalized.replaceAll(RegExp(r'[^a-z0-9_]'), '_');
     if (normalized.isEmpty) normalized = 'app';
