@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/utils/color_utils.dart';
 import '../models/widget_node.dart';
 import 'color_picker.dart';
 import 'dropdown_input.dart';
@@ -491,7 +492,6 @@ class PropertyInspector extends StatelessWidget {
   /// [value] : nouvelle valeur.
   final void Function(String key, dynamic value) onPropertyChanged;
 
-
   /// Callback optionnel pour supprimer le widget.
   final VoidCallback? onDelete;
 
@@ -609,9 +609,9 @@ class PropertyInspector extends StatelessWidget {
         final colorString = value as String? ?? '#FFFFFFFF';
         return ColorPicker(
           label: field.label,
-          initialColor: parseColor(colorString),
+          initialColor: ColorUtils.parseColor(colorString),
           onColorChanged: (color) {
-            onPropertyChanged(field.key, colorToHex(color));
+            onPropertyChanged(field.key, ColorUtils.colorToHex(color));
           },
         );
 
