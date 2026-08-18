@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
+import 'package:path_provider/path_provider.dart' as path_provider;
 
 /// Utilitaires pour la gestion des fichiers locaux.
 ///
@@ -16,7 +16,7 @@ class FileUtils {
   /// Sur Android, c'est généralement `/data/user/0/<package>/app_flutter`.
   static Future<Directory> getDocumentsDirectory() async {
     try {
-      return await getApplicationDocumentsDirectory();
+      return await path_provider.getApplicationDocumentsDirectory();
     } catch (e) {
       throw FileSystemException('Impossible d\'obtenir le répertoire des documents', e.toString());
     }
@@ -25,9 +25,24 @@ class FileUtils {
   /// Obtient le répertoire temporaire.
   static Future<Directory> getTemporaryDirectory() async {
     try {
-      return await getTemporaryDirectory();
+      return await path_provider.getTemporaryDirectory();
     } catch (e) {
       throw FileSystemException('Impossible d\'obtenir le répertoire temporaire', e.toString());
+    }
+  }
+
+  /// Obtient le répertoire de stockage externe de l'application.
+  /// Sur Android, retourne généralement `/storage/emulated/0/Android/data/<package>/files`.
+  /// Ce répertoire est privé à l'application mais situé sur le stockage externe.
+  static Future<Directory> getExternalStorageDirectory() async {
+    try {
+      final Directory? dir = await path_provider.getExternalStorageDirectory();
+      if (dir == null) {
+        throw FileSystemException('Répertoire de stockage externe introuvable');
+      }
+      return dir;
+    } catch (e) {
+      throw FileSystemException('Impossible d\'obtenir le répertoire externe', e.toString());
     }
   }
 
@@ -193,7 +208,6 @@ class FileUtils {
     if (await destination.exists() && !overwrite) {
       throw FileSystemException('Le fichier de destination existe déjà : $destinationPath');
     }
-    // Création du répertoire parent si nécessaire
     final dir = Directory(destination.parent.path);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
