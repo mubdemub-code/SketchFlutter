@@ -262,7 +262,7 @@ class LogicTab extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                initialValue: selectedType,
+                value: selectedType,
                 decoration: InputDecoration(
                   labelText: 'Type de bloc',
                   border: OutlineInputBorder(),
