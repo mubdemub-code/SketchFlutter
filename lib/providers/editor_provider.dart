@@ -370,7 +370,7 @@ class EditorNotifier extends Notifier<EditorState> {
       final parent = root.findById(parentId);
       if (parent == null) return root;
 
-      Widget updatedParent;
+      WidgetNode updatedParent;
       if (parent.type == 'Column' || parent.type == 'Row') {
         final children = List<WidgetNode>.from(parent.children ?? []);
         if (index != null && index >= 0 && index <= children.length) {
