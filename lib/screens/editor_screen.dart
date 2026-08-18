@@ -5,7 +5,7 @@ import '../core/constants/app_colors.dart';
 import '../core/constants/app_strings.dart';
 import '../providers/editor_provider.dart';
 import '../providers/project_provider.dart';
-import '../widgets/debouncer.dart'; // (nous l'avons dans core/utils, mais on peut l'importer)
+import '../core/utils/debouncer.dart'; // (nous l'avons dans core/utils, mais on peut l'importer)
 import 'design_tab.dart';
 import 'logic_tab.dart';
 import 'pages_tab.dart';
