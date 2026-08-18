@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../core/errors/validation_error.dart';
 import '../core/utils/file_utils.dart';
 import '../core/utils/json_utils.dart';
@@ -11,89 +13,101 @@ import '../models/project_metadata.dart';
 ///
 /// Ce service gère la persistance des projets sous forme de fichiers JSON
 /// dans le répertoire des documents de l'application. Il utilise un fichier
-/// d'index (`index.json`) pour lister rapidement les projets sans devoir
-/// charger tous les fichiers.
+/// d'index (`index.json`) pour lister rapidement les projets.
 ///
-/// Structure de stockage :
-///   `<appDocuments>/projects/`          (répertoire racine)
-///   ├── index.json                      (index des projets)
-///   ├── <project_id>.json               (fichier de chaque projet)
-///   └── ...
-///
-/// Le service est utilisé par les providers et les écrans pour :
-///   - lister les projets (écran d'accueil),
-///   - ouvrir un projet (chargement complet),
-///   - enregistrer un projet (création ou mise à jour),
-///   - supprimer un projet.
+/// **Diagnostic** : La classe intègre des journaux détaillés (debugPrint)
+/// pour retracer toutes les opérations d'écriture/lecture et identifier
+/// les problèmes de permissions ou de chemins.
 class ProjectStorage {
-  /// Nom du sous-répertoire où sont stockés les projets.
   static const String projectsSubdirectory = 'projects';
-
-  /// Nom du fichier d'index.
   static const String indexFileName = 'index.json';
 
-  /// Répertoire racine des projets (peut être injecté pour les tests).
   final Directory? _baseDirectoryOverride;
 
-  /// Constructeur.
-  ///
-  /// [baseDirectoryOverride] : répertoire personnalisé (utile pour les tests).
-  /// Par défaut, le répertoire sera `<documents>/projects`.
   ProjectStorage({Directory? baseDirectoryOverride})
       : _baseDirectoryOverride = baseDirectoryOverride;
 
+  // ---------------------------------------------------------------------------
+  // Résolution du répertoire de stockage (avec fallback)
+  // ---------------------------------------------------------------------------
+
   /// Obtient le répertoire racine des projets, en le créant si nécessaire.
+  /// Si le répertoire par défaut échoue, tente d'utiliser le stockage externe.
   Future<Directory> _getProjectsDirectory() async {
+    // 1. Si un répertoire personnalisé est fourni (tests)
     if (_baseDirectoryOverride != null) {
       await _baseDirectoryOverride!.create(recursive: true);
+      debugPrint('📁 [ProjectStorage] Répertoire override: ${_baseDirectoryOverride!.path}');
       return _baseDirectoryOverride!;
     }
-    final Directory documentsDir = await FileUtils.getDocumentsDirectory();
-    final Directory projectsDir = Directory(
-      '${documentsDir.path}/$projectsSubdirectory',
-    );
-    if (!await projectsDir.exists()) {
-      await projectsDir.create(recursive: true);
+
+    // 2. Tenter le répertoire des documents (par défaut)
+    try {
+      final Directory documentsDir = await FileUtils.getDocumentsDirectory();
+      final Directory projectsDir = Directory('${documentsDir.path}/$projectsSubdirectory');
+      if (!await projectsDir.exists()) {
+        await projectsDir.create(recursive: true);
+        debugPrint('📁 [ProjectStorage] Dossier projets créé: ${projectsDir.path}');
+      } else {
+        debugPrint('📁 [ProjectStorage] Dossier projets existant: ${projectsDir.path}');
+      }
+      return projectsDir;
+    } catch (e) {
+      debugPrint('❌ [ProjectStorage] Échec création dans documents: $e');
+      // 3. Fallback : stockage externe
+      try {
+        final Directory externalDir = await FileUtils.getExternalStorageDirectory();
+        final Directory projectsDir = Directory('${externalDir.path}/$projectsSubdirectory');
+        if (!await projectsDir.exists()) {
+          await projectsDir.create(recursive: true);
+          debugPrint('📁 [ProjectStorage] Fallback: dossier créé dans externe: ${projectsDir.path}');
+        }
+        return projectsDir;
+      } catch (e2) {
+        debugPrint('❌ [ProjectStorage] Échec création dans externe: $e2');
+        rethrow;
+      }
     }
-    return projectsDir;
   }
 
-  /// Obtient le chemin complet du fichier d'index.
+  /// Obtient le chemin du fichier d'index.
   Future<String> _getIndexFilePath() async {
     final Directory projectsDir = await _getProjectsDirectory();
     return '${projectsDir.path}/$indexFileName';
   }
 
-  /// Obtient le chemin complet du fichier d'un projet.
+  /// Obtient le chemin du fichier d'un projet.
   Future<String> _getProjectFilePath(String projectId) async {
     final Directory projectsDir = await _getProjectsDirectory();
     return '${projectsDir.path}/$projectId.json';
   }
 
-  /// Charge l'index des projets depuis le fichier `index.json`.
-  ///
-  /// Retourne une map avec la clé `projects` contenant la liste des métadonnées.
-  /// Si le fichier n'existe pas ou est corrompu, retourne un index vide.
+  // ---------------------------------------------------------------------------
+  // Gestion de l'index
+  // ---------------------------------------------------------------------------
+
   Future<Map<String, dynamic>> _loadIndex() async {
     final String indexPath = await _getIndexFilePath();
+    debugPrint('🔍 [ProjectStorage] Chargement index: $indexPath');
     final Map<String, dynamic>? indexData = await FileUtils.readJsonFile(indexPath);
     if (indexData == null) {
+      debugPrint('⚠️ [ProjectStorage] Index absent ou illisible, retour index vide.');
       return {'projects': []};
     }
-    // Vérification basique de la structure
     if (indexData['projects'] is! List) {
+      debugPrint('⚠️ [ProjectStorage] Structure index invalide.');
       return {'projects': []};
     }
     return indexData;
   }
 
-  /// Sauvegarde l'index complet dans le fichier `index.json`.
   Future<void> _saveIndex(Map<String, dynamic> index) async {
     final String indexPath = await _getIndexFilePath();
+    debugPrint('💾 [ProjectStorage] Sauvegarde index: $indexPath');
     await FileUtils.writeJsonFile(indexPath, index, pretty: true);
+    debugPrint('✅ [ProjectStorage] Index sauvegardé.');
   }
 
-  /// Extrait la liste des métadonnées depuis l'index.
   List<Map<String, dynamic>> _extractProjectsList(Map<String, dynamic> index) {
     final dynamic projects = index['projects'];
     if (projects is List) {
@@ -102,16 +116,18 @@ class ProjectStorage {
     return [];
   }
 
-  /// Retourne la liste de tous les projets (métadonnées uniquement).
-  ///
-  /// Utilise l'index pour une lecture rapide ; si l'index est absent,
-  /// tente de reconstruire l'index en scannant les fichiers JSON.
+  // ---------------------------------------------------------------------------
+  // Opérations CRUD
+  // ---------------------------------------------------------------------------
+
+  /// Retourne la liste des métadonnées de tous les projets.
   Future<List<ProjectMetadata>> getAllProjects() async {
+    debugPrint('📋 [ProjectStorage] Récupération de la liste des projets...');
     final Map<String, dynamic> index = await _loadIndex();
     final List<Map<String, dynamic>> projectsList = _extractProjectsList(index);
 
     if (projectsList.isEmpty) {
-      // Tenter de reconstruire l'index à partir des fichiers existants
+      debugPrint('ℹ️ [ProjectStorage] Index vide, tentative de reconstruction...');
       await _rebuildIndex();
       final newIndex = await _loadIndex();
       final rebuiltList = _extractProjectsList(newIndex);
@@ -119,10 +135,11 @@ class ProjectStorage {
       for (final map in rebuiltList) {
         try {
           result.add(ProjectMetadata.fromJson(map['metadata'] as Map<String, dynamic>));
-        } catch (_) {
-          // Ignorer les entrées invalides
+        } catch (e) {
+          debugPrint('❌ [ProjectStorage] Erreur parsing métadonnées: $e');
         }
       }
+      debugPrint('✅ [ProjectStorage] Reconstruction terminée, ${result.length} projets.');
       return result;
     }
 
@@ -131,73 +148,98 @@ class ProjectStorage {
       try {
         final metadata = ProjectMetadata.fromJson(map['metadata'] as Map<String, dynamic>);
         result.add(metadata);
-      } catch (_) {
-        // Ignorer les entrées corrompues
+      } catch (e) {
+        debugPrint('❌ [ProjectStorage] Erreur parsing métadonnées: $e');
       }
     }
+    debugPrint('✅ [ProjectStorage] ${result.length} projets chargés depuis index.');
     return result;
   }
 
   /// Charge un projet complet par son identifiant.
-  ///
-  /// Retourne `null` si le projet n'existe pas ou si une erreur survient.
   Future<ProjectModel?> loadProject(String projectId) async {
+    debugPrint('📂 [ProjectStorage] Chargement du projet: $projectId');
     final String filePath = await _getProjectFilePath(projectId);
-    final Map<String, dynamic>? projectData = await FileUtils.readJsonFile(filePath);
-    if (projectData == null) {
+    debugPrint('   Chemin: $filePath');
+
+    final bool exists = await FileUtils.fileExists(filePath);
+    if (!exists) {
+      debugPrint('❌ [ProjectStorage] Fichier introuvable. Liste des fichiers dans le répertoire:');
+      try {
+        final Directory dir = await _getProjectsDirectory();
+        final files = await dir.list().toList();
+        for (final f in files) {
+          debugPrint('   ${f.path}');
+        }
+      } catch (e) {
+        debugPrint('   (impossible de lister: $e)');
+      }
       return null;
     }
+
+    final Map<String, dynamic>? projectData = await FileUtils.readJsonFile(filePath);
+    if (projectData == null) {
+      debugPrint('❌ [ProjectStorage] Lecture JSON échouée.');
+      return null;
+    }
+
     try {
-      return ProjectModel.fromJson(projectData);
-    } catch (_) {
+      final project = ProjectModel.fromJson(projectData);
+      debugPrint('✅ [ProjectStorage] Projet chargé avec succès: ${project.metadata.name}');
+      return project;
+    } catch (e, stack) {
+      debugPrint('❌ [ProjectStorage] Erreur parsing: $e\n$stack');
       return null;
     }
   }
 
-  /// Sauvegarde un projet (crée ou met à jour selon l'identifiant).
-  ///
-  /// Après sauvegarde, l'index est mis à jour avec les métadonnées du projet.
+  /// Sauvegarde un projet (crée ou met à jour).
   Future<void> saveProject(ProjectModel project) async {
-    final String filePath = await _getProjectFilePath(project.metadata.projectId!);
+    final projectId = project.metadata.projectId;
+    if (projectId == null || projectId.isEmpty) {
+      debugPrint('❌ [ProjectStorage] ERREUR: projectId null ou vide lors de la sauvegarde.');
+      throw ValidationError.missingField('projectId');
+    }
+
+    debugPrint('💾 [ProjectStorage] Sauvegarde du projet: $projectId');
+    final String filePath = await _getProjectFilePath(projectId);
+    debugPrint('   Chemin: $filePath');
+
     final Map<String, dynamic> projectJson = project.toJson();
     await FileUtils.writeJsonFile(filePath, projectJson, pretty: true);
+    debugPrint('✅ [ProjectStorage] Fichier projet écrit.');
 
-    // Mettre à jour l'index
+    // Mise à jour de l'index
     final Map<String, dynamic> index = await _loadIndex();
     final List<Map<String, dynamic>> projectsList = _extractProjectsList(index);
 
-    // Mettre à jour ou ajouter l'entrée correspondante
-    final String projectId = project.metadata.projectId!;
     final int existingIndex = projectsList.indexWhere(
       (entry) => entry['project_id'] == projectId,
     );
+    final entry = {
+      'project_id': projectId,
+      'file_name': '$projectId.json',
+      'metadata': project.metadata.toJson(),
+    };
     if (existingIndex != -1) {
-      projectsList[existingIndex] = {
-        'project_id': projectId,
-        'file_name': '$projectId.json',
-        'metadata': project.metadata.toJson(),
-      };
+      projectsList[existingIndex] = entry;
+      debugPrint('ℹ️ [ProjectStorage] Entrée mise à jour dans l\'index.');
     } else {
-      projectsList.add({
-        'project_id': projectId,
-        'file_name': '$projectId.json',
-        'metadata': project.metadata.toJson(),
-      });
+      projectsList.add(entry);
+      debugPrint('ℹ️ [ProjectStorage] Nouvelle entrée ajoutée à l\'index.');
     }
 
     index['projects'] = projectsList;
     await _saveIndex(index);
   }
 
-  /// Supprime un projet par son identifiant.
-  ///
-  /// Supprime le fichier du projet et retire son entrée de l'index.
-  /// Retourne `true` si le projet a été supprimé, `false` s'il n'existait pas.
+  /// Supprime un projet.
   Future<bool> deleteProject(String projectId) async {
+    debugPrint('🗑️ [ProjectStorage] Suppression du projet: $projectId');
     final String filePath = await _getProjectFilePath(projectId);
     final bool fileDeleted = await FileUtils.deleteFile(filePath);
+    debugPrint('   Fichier supprimé: $fileDeleted');
 
-    // Mettre à jour l'index
     final Map<String, dynamic> index = await _loadIndex();
     final List<Map<String, dynamic>> projectsList = _extractProjectsList(index);
     final int removedCount = projectsList.length;
@@ -205,42 +247,39 @@ class ProjectStorage {
     if (projectsList.length != removedCount) {
       index['projects'] = projectsList;
       await _saveIndex(index);
+      debugPrint('✅ [ProjectStorage] Projet retiré de l\'index.');
     }
-
     return fileDeleted;
   }
 
-  /// Vérifie si un projet avec cet identifiant existe.
+  /// Vérifie si un projet existe.
   Future<bool> projectExists(String projectId) async {
     final String filePath = await _getProjectFilePath(projectId);
     return await FileUtils.fileExists(filePath);
   }
 
-  /// Crée un nouveau projet vide avec les métadonnées fournies.
-  ///
-  /// Retourne le projet créé (déjà sauvegardé sur disque).
+  /// Crée un nouveau projet.
   Future<ProjectModel> createProject({
     required String name,
     String? description,
     String? author,
     String? packageName,
   }) async {
+    debugPrint('🆕 [ProjectStorage] Création d\'un nouveau projet: $name');
     final ProjectModel project = ProjectModel.create(
       name: name,
       description: description,
       author: author,
       packageName: packageName,
     );
+    debugPrint('   ID généré: ${project.metadata.projectId}');
     await saveProject(project);
     return project;
   }
 
-  /// Reconstruit l'index en scannant les fichiers JSON du répertoire.
-  ///
-  /// Utile si le fichier `index.json` est manquant ou corrompu.
-  /// Pour chaque fichier `.json` (sauf `index.json`), tente de charger le projet
-  /// et d'en extraire les métadonnées.
+  /// Reconstruit l'index en scannant les fichiers JSON.
   Future<void> _rebuildIndex() async {
+    debugPrint('🔁 [ProjectStorage] Reconstruction de l\'index...');
     final Directory projectsDir = await _getProjectsDirectory();
     final List<File> files = await FileUtils.listFiles(
       projectsDir.path,
@@ -259,12 +298,54 @@ class ProjectStorage {
           'file_name': file.uri.pathSegments.last,
           'metadata': project.metadata.toJson(),
         });
-      } catch (_) {
-        // Ignorer les fichiers illisibles
+        debugPrint('   Ajouté: ${project.metadata.name}');
+      } catch (e) {
+        debugPrint('❌ [ProjectStorage] Fichier illisible ignoré: ${file.path} ($e)');
       }
     }
 
     final Map<String, dynamic> index = {'projects': projectsList};
     await _saveIndex(index);
+    debugPrint('✅ [ProjectStorage] Index reconstruit avec ${projectsList.length} projets.');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Méthodes de diagnostic
+  // ---------------------------------------------------------------------------
+
+  /// Teste si le répertoire de stockage est accessible en écriture.
+  Future<bool> testStorageAccess() async {
+    try {
+      final Directory dir = await _getProjectsDirectory();
+      final File testFile = File('${dir.path}/.write_test');
+      await testFile.writeAsString('ok');
+      await testFile.delete();
+      debugPrint('✅ [ProjectStorage] Test écriture réussi dans: ${dir.path}');
+      return true;
+    } catch (e) {
+      debugPrint('❌ [ProjectStorage] Test écriture échoué: $e');
+      return false;
+    }
+  }
+
+  /// Affiche l'état complet du stockage (dossier, fichiers, permissions).
+  Future<void> debugStorage() async {
+    debugPrint('=== DIAGNOSTIC STOCKAGE ===');
+    try {
+      final Directory dir = await _getProjectsDirectory();
+      debugPrint('Dossier projets: ${dir.path}');
+      debugPrint('Existe: ${await dir.exists()}');
+      if (await dir.exists()) {
+        final files = await dir.list().toList();
+        debugPrint('Contenu (${files.length} éléments):');
+        for (final f in files) {
+          debugPrint('  - ${f.path}');
+        }
+      }
+      await testStorageAccess();
+    } catch (e) {
+      debugPrint('Erreur diagnostic: $e');
+    }
+    debugPrint('=== FIN DIAGNOSTIC ===');
   }
 }
