@@ -64,7 +64,7 @@ class LogicTab extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<VariableType>(
-                    value: selectedType,
+                    value: selectedType, // CORRECTION : 'value' au lieu de 'initialValue'
                     decoration: InputDecoration(
                       labelText: AppStrings.blockVariableType,
                       border: OutlineInputBorder(
@@ -212,6 +212,7 @@ class LogicTab extends ConsumerWidget {
   /// dans les liaisons logiques, ou si son type est un widget interactif connu.
   List<WidgetNode> _getInteractiveWidgets(PageModel page) {
     final root = page.rootWidget;
+    if (root == null) return [];
     final allNodes = root.getAllNodes();
     final interactiveTypes = {
       'Button',
@@ -263,7 +264,7 @@ class LogicTab extends ConsumerWidget {
             children: [
               DropdownButtonFormField<String>(
                 value: selectedType,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Type de bloc',
                   border: OutlineInputBorder(),
                 ),
@@ -288,10 +289,11 @@ class LogicTab extends ConsumerWidget {
               child: const Text(AppStrings.cancel),
             ),
             FilledButton(
-              onPressed: () {
+              onPressed: () async {
                 if (selectedType == null) return;
                 // Selon le type, on demande des paramètres supplémentaires.
-                final block = _createBlockFromType(selectedType!, context);
+                // On passe context pour éviter l'erreur.
+                final block = await _createBlockFromTypeAsync(selectedType!, context);
                 if (block != null) {
                   Navigator.of(dialogContext).pop(block);
                 }
@@ -319,12 +321,12 @@ class LogicTab extends ConsumerWidget {
     }
   }
 
-  /// Crée un bloc logique à partir du type sélectionné et des paramètres saisis.
-  LogicBlock? _createBlockFromType(String type, BuildContext context) {
+  /// Crée un bloc logique à partir du type sélectionné de manière asynchrone.
+  Future<LogicBlock?> _createBlockFromTypeAsync(String type, BuildContext context) async {
     switch (type) {
       case LogicBlockTypes.showSnackbar:
-        final message = _promptForString('Message du SnackBar');
-        if (message != null) {
+        final message = await _promptForStringAsync(context, 'Message du SnackBar');
+        if (message != null && message.isNotEmpty) {
           return LogicBlock.create(
             type: type,
             parameters: {'message': message},
@@ -332,8 +334,8 @@ class LogicTab extends ConsumerWidget {
         }
         break;
       case LogicBlockTypes.navigateTo:
-        final pageId = _promptForString('ID de la page de destination');
-        if (pageId != null) {
+        final pageId = await _promptForStringAsync(context, 'ID de la page de destination');
+        if (pageId != null && pageId.isNotEmpty) {
           return LogicBlock.create(
             type: type,
             parameters: {'page_id': pageId},
@@ -341,9 +343,9 @@ class LogicTab extends ConsumerWidget {
         }
         break;
       case LogicBlockTypes.setVariable:
-        final variableId = _promptForString('ID de la variable');
-        final value = _promptForString('Valeur à définir');
-        if (variableId != null && value != null) {
+        final variableId = await _promptForStringAsync(context, 'ID de la variable');
+        final value = await _promptForStringAsync(context, 'Valeur à définir');
+        if (variableId != null && variableId.isNotEmpty && value != null && value.isNotEmpty) {
           return LogicBlock.create(
             type: type,
             parameters: {'variable_id': variableId, 'value': value},
@@ -354,12 +356,10 @@ class LogicTab extends ConsumerWidget {
     return null;
   }
 
-  /// Petit helper pour demander une chaîne via une boîte de dialogue synchrone.
-  String? _promptForString(String label) {
-    // Utilisation d'un TextEditingController et d'une boîte de dialogue.
+  /// Helper pour demander une chaîne via une boîte de dialogue asynchrone.
+  Future<String?> _promptForStringAsync(BuildContext context, String label) async {
     final controller = TextEditingController();
-    String? result;
-    showDialog<String>(
+    return await showDialog<String>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
@@ -380,16 +380,7 @@ class LogicTab extends ConsumerWidget {
           ],
         );
       },
-    ).then((value) {
-      result = value;
-    });
-    // Attention : cette méthode n'est pas réellement synchrone car showDialog est asynchrone.
-    // Pour rester simple, on utilisera une autre approche dans l'implémentation finale.
-    // Ici, on retourne null car la récupération synchrone n'est pas triviale.
-    // À la place, on aurait dû faire une méthode asynchrone.
-    // Nous allons corriger en rendant _createBlockFromType asynchrone, mais pour l'instant,
-    // on retourne null.
-    return result;
+    );
   }
 
   /// Ajoute un bloc à un événement spécifique d'un widget dans une page.
@@ -498,6 +489,7 @@ class LogicTab extends ConsumerWidget {
                   margin: const EdgeInsets.only(right: 8),
                   child: InkWell(
                     onTap: () => _showVariableDialog(context, ref, existing: variable),
+                    onLongPress: () => _deleteVariable(context, ref, variable), // Ajout utile : pouvoir supprimer la variable
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: Column(
@@ -535,7 +527,7 @@ class LogicTab extends ConsumerWidget {
   Widget _buildEventsSection(BuildContext context, WidgetRef ref) {
     final pages = project.pages;
     if (pages.isEmpty) {
-      return Center(child: Text('Aucune page'));
+      return const Center(child: Text('Aucune page'));
     }
 
     // On liste les widgets interactifs de toutes les pages.
@@ -601,7 +593,7 @@ class LogicTab extends ConsumerWidget {
     }
 
     if (eventWidgets.isEmpty) {
-      return Center(
+      return const Center(
         child: Text('Aucun widget interactif. Ajoutez des boutons, champs, etc.'),
       );
     }
