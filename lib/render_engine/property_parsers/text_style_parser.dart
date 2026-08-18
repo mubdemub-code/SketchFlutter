@@ -40,7 +40,7 @@ class TextStyleParser {
     return TextStyleUtils.parseTextStyle(
       {
         ...map,
-        if (color != null) 'color': '#${color!.toARGB32().toRadixString(16).padLeft(8, '0')}',
+        if (color != null) 'color': '#${color!.value.toRadixString(16).padLeft(8, '0')}',
       },
       designSystem: null, // les références déjà résolues
     );
