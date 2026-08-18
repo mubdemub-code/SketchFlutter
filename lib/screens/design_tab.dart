@@ -178,7 +178,7 @@ class DesignTab extends ConsumerWidget {
       );
     }
 
-    final rootWidget = currentPage!.rootWidget;
+    final rootWidget = currentPage.rootWidget;
 
     // Trouver le widget sélectionné.
     WidgetNode? selectedWidget;
@@ -234,12 +234,12 @@ class DesignTab extends ConsumerWidget {
               onPropertyChanged: (key, value) {
                 ref
                     .read(editorProvider.notifier)
-                    .updateWidgetProperty(selectedWidget.id, key, value);
+                    .updateWidgetProperty(selectedWidget!.id, key, value);
               },
               onDelete: () {
                 ref
                     .read(editorProvider.notifier)
-                    .removeWidget(selectedWidget.id);
+                    .removeWidget(selectedWidget!.id);
               },
               onDuplicate: () {
                 // TODO: Implémenter la duplication du widget sélectionné.
