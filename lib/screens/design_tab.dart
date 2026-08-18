@@ -9,6 +9,7 @@ import '../models/widget_node.dart';
 import '../providers/editor_provider.dart';
 import '../providers/project_provider.dart';
 import '../render_engine/json_widget_parser.dart';
+import '../render_engine/render_context.dart';
 import '../widgets/canvas_area.dart';
 import '../widgets/property_inspector.dart';
 import '../widgets/widget_palette.dart';
@@ -186,8 +187,13 @@ class DesignTab extends ConsumerWidget {
       selectedWidget = rootWidget.findById(selectedWidgetId);
     }
 
-    // Construire l'aperçu à l'aide du parseur.
-    final parser = JsonWidgetParser(context: RenderContext(context: context));
+    // Construire l'aperçu à l'aide du parseur et du RenderContext correct.
+    final renderContext = RenderContext(
+      buildContext: context,
+      theme: Theme.of(context),
+    );
+    final parser = JsonWidgetParser(context: renderContext);
+    
     Widget previewWidget;
     if (rootWidget != null) {
       previewWidget = parser.parse(rootWidget);
