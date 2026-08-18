@@ -37,7 +37,8 @@ class JsonUtils {
   /// Encode un [Map] en chaîne JSON.
   /// Si [pretty] est vrai, la sortie est indentée pour la lisibilité.
   static String encode(Map<String, dynamic> data, {bool pretty = false}) {
-    const encoder = JsonEncoder.withIndent(pretty ? '  ' : null);
+    final encoder = JsonEncoder.withIndent(pretty ? '  ' : null);
+
     return encoder.convert(data);
   }
 
