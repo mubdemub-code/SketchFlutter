@@ -10,17 +10,18 @@ import 'widget_builders/row_column_builder.dart';
 import 'widget_builders/button_builder.dart';
 import 'widget_builders/image_builder.dart';
 import 'widget_builders/icon_builder.dart';
-import 'widget_builders/text_field_builder.dart';
+import 'widget_builders/textfield_builder.dart';
 import 'widget_builders/checkbox_builder.dart';
 import 'widget_builders/switch_builder.dart';
 import 'widget_builders/slider_builder.dart';
-import 'widget_builders/list_view_builder.dart';
+import 'widget_builders/listview_builder.dart';
 import 'widget_builders/grid_view_builder.dart';
 import 'widget_builders/list_tile_builder.dart';
 import 'widget_builders/app_bar_builder.dart';
-import 'widget_builders/sized_box_builder.dart';
+import 'widget_builders/sizedbox_builder.dart';
 import 'widget_builders/padding_builder.dart';
 import 'widget_builders/center_builder.dart';
+
   // importer tous les builders
 
 /// Parser principal JSON → Widget Flutter.
