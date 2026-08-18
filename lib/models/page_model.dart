@@ -104,7 +104,7 @@ class PageModel {
     final dynamic logicData = json['logic_bindings'];
     if (logicData != null) {
       if (logicData is Map<String, dynamic>) {
-        logicBindings = {};
+        final Map<String, Map<String, List<Map<String, dynamic>>>> parsedBindings = {};
         logicData.forEach((widgetId, events) {
           if (events is Map<String, dynamic>) {
             final Map<String, List<Map<String, dynamic>>> eventMap = {};
@@ -123,7 +123,7 @@ class PageModel {
                 );
               }
             });
-            logicBindings[widgetId] = eventMap;
+            parsedBindings[widgetId] = eventMap;
           } else {
             throw ValidationError.invalidType(
               'logic_bindings.$widgetId',
@@ -133,6 +133,7 @@ class PageModel {
             );
           }
         });
+        logicBindings = parsedBindings;
       } else {
         throw ValidationError.invalidType(
           'logic_bindings',
