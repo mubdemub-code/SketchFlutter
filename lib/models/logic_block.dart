@@ -69,17 +69,20 @@ class LogicBlock {
 
     final String? id = JsonUtils.getString(json, 'id');
 
-    // Extraire les paramètres : tous les champs sauf 'type' et 'id'
-    final Map<String, dynamic>? parameters = json.isEmpty
-        ? null
-        : Map<String, dynamic>.from(json)
-          ..remove('type')
-          ..remove('id');
+    // CORRECTION : Extraction des paramètres de façon 100% null-safe sans opérateur cascade ambigu.
+    Map<String, dynamic>? extractedParameters;
+    if (json.isNotEmpty) {
+      extractedParameters = Map<String, dynamic>.from(json);
+      extractedParameters.remove('type');
+      extractedParameters.remove('id');
+    }
 
     return LogicBlock(
       id: id,
       type: type.trim(),
-      parameters: parameters != null && parameters.isNotEmpty ? parameters : null,
+      parameters: extractedParameters != null && extractedParameters.isNotEmpty 
+          ? extractedParameters 
+          : null,
     );
   }
 
