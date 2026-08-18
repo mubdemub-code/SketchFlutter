@@ -489,7 +489,8 @@ class PropertyInspector extends StatelessWidget {
   /// Callback appelé lorsqu'une propriété est modifiée.
   /// [key] : clé de la propriété.
   /// [value] : nouvelle valeur.
-  final ValueChanged<String, dynamic> onPropertyChanged;
+  final void Function(String key, dynamic value) onPropertyChanged;
+
 
   /// Callback optionnel pour supprimer le widget.
   final VoidCallback? onDelete;
