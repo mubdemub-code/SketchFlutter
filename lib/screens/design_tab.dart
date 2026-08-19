@@ -294,7 +294,7 @@ class _DesignTabState extends ConsumerState<DesignTab> {
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         children: _widgetCategories.entries.map((entry) {
           return Column(
-            crossAxisAlignment: CrossAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
                 padding: const EdgeInsets.only(left: 4, top: 12, bottom: 8),
@@ -520,7 +520,7 @@ class _DesignTabState extends ConsumerState<DesignTab> {
           DrawerHeader(
             decoration: const BoxDecoration(color: Color(0xFF1A1A24)),
             child: Column(
-              crossAxisAlignment: CrossAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: const [
                 Icon(Icons.settings, color: Colors.cyanAccent, size: 36),
