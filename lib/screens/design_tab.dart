@@ -1888,7 +1888,7 @@ class _DesignTabState extends ConsumerState<DesignTab>
     final bottomOffset =
         -_inspectorDragOffset.clamp(
           0,
-          320,
+          320.0
         );
 
     return Positioned(
@@ -2186,22 +2186,20 @@ class _DesignTabState extends ConsumerState<DesignTab>
       final copy =
           WidgetNode.create(
         type: original.type,
-        properties:
-            Map<String, dynamic>.from(
-          original.properties,
+        properties: Map<String, dynamic>.from(original.properties ?? {}),
         ),
         children: [],
       );
 
-      if (original.children
-          .isNotEmpty) {
-        for (final child
-            in original.children) {
-          final clonedChild =
-              _cloneNode(child);
+            if (original.children != null && original.children!.isNotEmpty) {
+        for (final child in original.children!) {
+          final clonedChild = _cloneNode(child);
 
           if (clonedChild != null) {
-            copy.children.add(
+            // Sécurité : on initialise la liste si elle est nulle avant d'y ajouter un élément
+            copy.children ??= <WidgetNode>[]; 
+            
+            copy.children!.add(
               clonedChild,
             );
           }
@@ -2218,7 +2216,7 @@ class _DesignTabState extends ConsumerState<DesignTab>
     WidgetNode root,
     String childId,
   ) {
-    for (final child in root.children) {
+    for (final child in root.children ?? []) {
       if (child.id == childId) {
         return root;
       }
@@ -2565,7 +2563,7 @@ class _EditableNode extends StatelessWidget {
     final children =
         <Widget>[
       for (final child
-          in node.children)
+          in node.children ?? [])
         _EditableNode(
           node: child,
           state: state,
@@ -2573,7 +2571,7 @@ class _EditableNode extends StatelessWidget {
         ),
     ];
 
-    final p = node.properties;
+    final Map<String, dynamic> p = node.properties ?? {};
 
     switch (node.type) {
       // ==========================================================
