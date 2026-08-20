@@ -2566,3 +2566,1012 @@ class _EditableNode extends StatelessWidget {
         <Widget>[
       for (final child
           in node.children)
+        _EditableNode(
+          node: child,
+          state: state,
+          parser: parser,
+        ),
+    ];
+
+    final p = node.properties;
+
+    switch (node.type) {
+      // ==========================================================
+      // CONTAINER
+      // ==========================================================
+
+      case 'Container':
+        return Container(
+          width: p['width'] == null
+              ? null
+              : state._toDouble(
+                  p['width'],
+                ),
+          height: p['height'] == null
+              ? null
+              : state._toDouble(
+                  p['height'],
+                ),
+          padding:
+              state._parsePadding(
+            p['padding'],
+          ),
+          margin:
+              state._parsePadding(
+            p['margin'],
+          ),
+          alignment:
+              _alignmentFromString(
+            p['alignment'],
+          ),
+          decoration:
+              BoxDecoration(
+            color: state._parseColor(
+              p['color'],
+              fallback:
+                  Colors.transparent,
+            ),
+            borderRadius:
+                state._parseRadius(
+              p['borderRadius'],
+            ),
+          ),
+          child: _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // COLUMN
+      // ==========================================================
+
+      case 'Column':
+        return Column(
+          mainAxisSize:
+              p['mainAxisSize'] ==
+                      'min'
+                  ? MainAxisSize.min
+                  : MainAxisSize.max,
+          mainAxisAlignment:
+              _mainAxisAlignment(
+            p['mainAxisAlignment'],
+          ),
+          crossAxisAlignment:
+              _crossAxisAlignment(
+            p['crossAxisAlignment'],
+          ),
+          children: children,
+        );
+
+      // ==========================================================
+      // ROW
+      // ==========================================================
+
+      case 'Row':
+        return Row(
+          mainAxisSize:
+              p['mainAxisSize'] ==
+                      'min'
+                  ? MainAxisSize.min
+                  : MainAxisSize.max,
+          mainAxisAlignment:
+              _mainAxisAlignment(
+            p['mainAxisAlignment'],
+          ),
+          crossAxisAlignment:
+              _crossAxisAlignment(
+            p['crossAxisAlignment'],
+          ),
+          children: children,
+        );
+
+      // ==========================================================
+      // STACK
+      // ==========================================================
+
+      case 'Stack':
+        return Stack(
+          clipBehavior:
+              Clip.none,
+          children: children,
+        );
+
+      // ==========================================================
+      // CENTER
+      // ==========================================================
+
+      case 'Center':
+        return Center(
+          child: _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // ALIGN
+      // ==========================================================
+
+      case 'Align':
+        return Align(
+          alignment:
+              _alignmentFromString(
+            p['alignment'],
+          ),
+          child: _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // PADDING
+      // ==========================================================
+
+      case 'Padding':
+        return Padding(
+          padding:
+              state._parsePadding(
+            p['padding'],
+            fallback:
+                const EdgeInsets.all(8),
+          ),
+          child: _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // SIZED BOX
+      // ==========================================================
+
+      case 'SizedBox':
+        return SizedBox(
+          width: p['width'] == null
+              ? null
+              : state._toDouble(
+                  p['width'],
+                ),
+          height: p['height'] == null
+              ? null
+              : state._toDouble(
+                  p['height'],
+                ),
+          child: _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // EXPANDED
+      // ==========================================================
+
+      case 'Expanded':
+        return Expanded(
+          flex: state._toInt(
+            p['flex'],
+            fallback: 1,
+          ),
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // FLEXIBLE
+      // ==========================================================
+
+      case 'Flexible':
+        return Flexible(
+          flex: state._toInt(
+            p['flex'],
+            fallback: 1,
+          ),
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // SPACER
+      // ==========================================================
+
+      case 'Spacer':
+        return Spacer(
+          flex: state._toInt(
+            p['flex'],
+            fallback: 1,
+          ),
+        );
+
+      // ==========================================================
+      // TEXT
+      // ==========================================================
+
+      case 'Text':
+        return Text(
+          state._toStringValue(
+            p['data'],
+            fallback: 'Texte',
+          ),
+          textAlign:
+              _textAlign(
+            p['textAlign'],
+          ),
+          style: TextStyle(
+            fontSize:
+                state._toDouble(
+              p['fontSize'],
+              fallback: 16,
+            ),
+            color:
+                state._parseColor(
+              p['color'],
+              fallback:
+                  Colors.black,
+            ),
+            fontWeight:
+                _fontWeight(
+              p['fontWeight'],
+            ),
+          ),
+        );
+
+      // ==========================================================
+      // BUTTON
+      // ==========================================================
+
+      case 'Button':
+        final text =
+            state._toStringValue(
+          p['text'],
+          fallback: 'Bouton',
+        );
+
+        final buttonType =
+            state._toStringValue(
+          p['buttonType'],
+          fallback: 'elevated',
+        );
+
+        final enabled =
+            state._toBool(
+          p['enabled'],
+          fallback: true,
+        );
+
+        final child =
+            Text(text);
+
+        Widget button;
+
+        switch (buttonType) {
+          case 'text':
+            button = TextButton(
+              onPressed:
+                  enabled ? () {} : null,
+              child: child,
+            );
+            break;
+
+          case 'outlined':
+            button = OutlinedButton(
+              onPressed:
+                  enabled ? () {} : null,
+              child: child,
+            );
+            break;
+
+          default:
+            button = ElevatedButton(
+              onPressed:
+                  enabled ? () {} : null,
+              child: child,
+            );
+        }
+
+        return IgnorePointer(
+          ignoring: true,
+          child: button,
+        );
+
+      // ==========================================================
+      // ICON
+      // ==========================================================
+
+      case 'Icon':
+        return Icon(
+          _iconFromName(
+            state._toStringValue(
+              p['icon'],
+              fallback: 'star',
+            ),
+          ),
+          size:
+              state._toDouble(
+            p['size'],
+            fallback: 28,
+          ),
+          color:
+              state._parseColor(
+            p['color'],
+            fallback:
+                Colors.amber,
+          ),
+        );
+
+      // ==========================================================
+      // IMAGE
+      // ==========================================================
+
+      case 'Image':
+        return _buildImage(
+          context,
+          p,
+        );
+
+      // ==========================================================
+      // TEXT FIELD
+      // ==========================================================
+
+      case 'TextField':
+        return AbsorbPointer(
+          absorbing: true,
+          child: TextField(
+            decoration: InputDecoration(
+              hintText:
+                  p['hintText']
+                      ?.toString(),
+              labelText:
+                  p['labelText']
+                      ?.toString(),
+              border:
+                  const OutlineInputBorder(),
+            ),
+          ),
+        );
+
+      // ==========================================================
+      // CHECKBOX
+      // ==========================================================
+
+      case 'Checkbox':
+        return IgnorePointer(
+          child: Checkbox(
+            value:
+                state._toBool(
+              p['value'],
+            ),
+            onChanged: (_) {},
+          ),
+        );
+
+      // ==========================================================
+      // SWITCH
+      // ==========================================================
+
+      case 'Switch':
+        return IgnorePointer(
+          child: Switch(
+            value:
+                state._toBool(
+              p['value'],
+            ),
+            onChanged: (_) {},
+          ),
+        );
+
+      // ==========================================================
+      // SLIDER
+      // ==========================================================
+
+      case 'Slider':
+        return IgnorePointer(
+          child: Slider(
+            min:
+                state._toDouble(
+              p['min'],
+              fallback: 0,
+            ),
+            max:
+                state._toDouble(
+              p['max'],
+              fallback: 100,
+            ),
+            value:
+                state._toDouble(
+              p['value'],
+              fallback: 50,
+            ).clamp(
+              state._toDouble(
+                p['min'],
+                fallback: 0,
+              ),
+              state._toDouble(
+                p['max'],
+                fallback: 100,
+              ),
+            ),
+            onChanged: (_) {},
+          ),
+        );
+
+      // ==========================================================
+      // LIST VIEW
+      // ==========================================================
+
+      case 'ListView':
+        return ListView(
+          physics:
+              const NeverScrollableScrollPhysics(),
+          children: children,
+        );
+
+      // ==========================================================
+      // GRID VIEW
+      // ==========================================================
+
+      case 'GridView':
+        return GridView.count(
+          physics:
+              const NeverScrollableScrollPhysics(),
+          shrinkWrap: true,
+          crossAxisCount:
+              state._toInt(
+            p['crossAxisCount'],
+            fallback: 2,
+          ).clamp(1, 6),
+          children: children,
+        );
+
+      // ==========================================================
+      // LIST TILE
+      // ==========================================================
+
+      case 'ListTile':
+        return ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(
+            horizontal: 10,
+          ),
+          leading: Icon(
+            _iconFromName(
+              state._toStringValue(
+                p['leadingIcon'],
+                fallback: 'star',
+              ),
+            ),
+          ),
+          title: Text(
+            state._toStringValue(
+              p['title'],
+              fallback: 'Titre',
+            ),
+          ),
+          subtitle: Text(
+            state._toStringValue(
+              p['subtitle'],
+              fallback: 'Sous-titre',
+            ),
+          ),
+          trailing: Icon(
+            _iconFromName(
+              state._toStringValue(
+                p['trailingIcon'],
+                fallback:
+                    'chevron_right',
+              ),
+            ),
+          ),
+        );
+
+      // ==========================================================
+      // WRAP
+      // ==========================================================
+
+      case 'Wrap':
+        return Wrap(
+          spacing:
+              state._toDouble(
+            p['spacing'],
+            fallback: 8,
+          ),
+          runSpacing:
+              state._toDouble(
+            p['runSpacing'],
+            fallback: 8,
+          ),
+          children: children,
+        );
+
+      // ==========================================================
+      // SAFE AREA
+      // ==========================================================
+
+      case 'SafeArea':
+        return SafeArea(
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // SINGLE CHILD SCROLL
+      // ==========================================================
+
+      case 'SingleChildScrollView':
+        return SingleChildScrollView(
+          physics:
+              const NeverScrollableScrollPhysics(),
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // CARD
+      // ==========================================================
+
+      case 'Card':
+        return Card(
+          margin:
+              const EdgeInsets.all(6),
+          elevation:
+              state._toDouble(
+            p['elevation'],
+            fallback: 2,
+          ),
+          shape:
+              RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(
+              state._toDouble(
+                p['borderRadius'],
+                fallback: 12,
+              ),
+            ),
+          ),
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // DIVIDER
+      // ==========================================================
+
+      case 'Divider':
+        return Divider(
+          height:
+              state._toDouble(
+            p['height'],
+            fallback: 1,
+          ),
+          thickness:
+              state._toDouble(
+            p['thickness'],
+            fallback: 1,
+          ),
+        );
+
+      // ==========================================================
+      // VISIBILITY
+      // ==========================================================
+
+      case 'Visibility':
+        return Visibility(
+          visible:
+              state._toBool(
+            p['visible'],
+            fallback: true,
+          ),
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // OPACITY
+      // ==========================================================
+
+      case 'Opacity':
+        return Opacity(
+          opacity:
+              state._toDouble(
+            p['opacity'],
+            fallback: 1,
+          ).clamp(0, 1),
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // SCAFFOLD
+      // ==========================================================
+
+      case 'Scaffold':
+        return Container(
+          color: Colors.white,
+          child:
+              _singleChild(
+            children,
+          ),
+        );
+
+      // ==========================================================
+      // APP BAR
+      // ==========================================================
+
+      case 'AppBar':
+        return Container(
+          height: 56,
+          padding:
+              const EdgeInsets.symmetric(
+            horizontal: 14,
+          ),
+          color: const Color(
+            0xFF1976D2,
+          ),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              state._toStringValue(
+                p['title'],
+                fallback: 'Titre',
+              ),
+              style:
+                  const TextStyle(
+                color:
+                    Colors.white,
+                fontSize: 18,
+                fontWeight:
+                    FontWeight.w600,
+              ),
+            ),
+          ),
+        );
+
+      // ==========================================================
+      // FALLBACK PARSER
+      // ==========================================================
+
+      default:
+        try {
+          return parser.build(node);
+        } catch (_) {
+          return Container(
+            padding:
+                const EdgeInsets.all(10),
+            decoration:
+                BoxDecoration(
+              color:
+                  Colors.red.withOpacity(
+                0.08,
+              ),
+              border:
+                  Border.all(
+                color:
+                    Colors.redAccent,
+              ),
+              borderRadius:
+                  BorderRadius.circular(
+                8,
+              ),
+            ),
+            child: Text(
+              node.type,
+              style:
+                  const TextStyle(
+                color:
+                    Colors.redAccent,
+                fontSize: 11,
+              ),
+            ),
+          );
+        }
+    }
+  }
+
+  // ==============================================================
+  // IMAGE
+  // ==============================================================
+
+  Widget _buildImage(
+    BuildContext context,
+    Map properties,
+  ) {
+    final src =
+        properties['src']
+            ?.toString() ??
+            '';
+
+    final width =
+        properties['width'] == null
+            ? 100.0
+            : state._toDouble(
+                properties['width'],
+              );
+
+    final height =
+        properties['height'] == null
+            ? 100.0
+            : state._toDouble(
+                properties['height'],
+              );
+
+    if (src.isEmpty) {
+      return Container(
+        width: width,
+        height: height,
+        decoration:
+            BoxDecoration(
+          color:
+              const Color(0xFFE9E9ED),
+          borderRadius:
+              BorderRadius.circular(8),
+        ),
+        child: const Center(
+          child: Icon(
+            Icons.image_outlined,
+            color: Colors.black38,
+            size: 34,
+          ),
+        ),
+      );
+    }
+
+    if (src.startsWith('http://') ||
+        src.startsWith('https://')) {
+      return Image.network(
+        src,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        errorBuilder:
+            (_, __, ___) {
+          return Container(
+            width: width,
+            height: height,
+            color:
+                Colors.grey.shade200,
+            child: const Icon(
+              Icons.broken_image_outlined,
+              color: Colors.black38,
+            ),
+          );
+        },
+      );
+    }
+
+    return Image.asset(
+      src,
+      width: width,
+      height: height,
+      fit: BoxFit.cover,
+      errorBuilder:
+          (_, __, ___) {
+        return Container(
+          width: width,
+          height: height,
+          color:
+              Colors.grey.shade200,
+          child: const Icon(
+            Icons.broken_image_outlined,
+            color: Colors.black38,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _singleChild(
+    List<Widget> children,
+  ) {
+    if (children.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return children.first;
+  }
+
+  // ==============================================================
+  // ENUM HELPERS
+  // ==============================================================
+
+  MainAxisAlignment _mainAxisAlignment(
+    dynamic value,
+  ) {
+    switch (value?.toString()) {
+      case 'center':
+        return MainAxisAlignment.center;
+      case 'end':
+        return MainAxisAlignment.end;
+      case 'spaceBetween':
+        return MainAxisAlignment.spaceBetween;
+      case 'spaceAround':
+        return MainAxisAlignment.spaceAround;
+      case 'spaceEvenly':
+        return MainAxisAlignment.spaceEvenly;
+      default:
+        return MainAxisAlignment.start;
+    }
+  }
+
+  CrossAxisAlignment _crossAxisAlignment(
+    dynamic value,
+  ) {
+    switch (value?.toString()) {
+      case 'start':
+        return CrossAxisAlignment.start;
+      case 'end':
+        return CrossAxisAlignment.end;
+      case 'stretch':
+        return CrossAxisAlignment.stretch;
+      default:
+        return CrossAxisAlignment.center;
+    }
+  }
+
+  TextAlign _textAlign(
+    dynamic value,
+  ) {
+    switch (value?.toString()) {
+      case 'center':
+        return TextAlign.center;
+      case 'right':
+        return TextAlign.right;
+      case 'justify':
+        return TextAlign.justify;
+      default:
+        return TextAlign.left;
+    }
+  }
+
+  FontWeight _fontWeight(
+    dynamic value,
+  ) {
+    switch (value?.toString()) {
+      case 'bold':
+        return FontWeight.bold;
+      case 'w600':
+        return FontWeight.w600;
+      case 'w500':
+        return FontWeight.w500;
+      default:
+        return FontWeight.normal;
+    }
+  }
+
+  Alignment _alignmentFromString(
+    dynamic value,
+  ) {
+    switch (value?.toString()) {
+      case 'topLeft':
+        return Alignment.topLeft;
+      case 'topCenter':
+        return Alignment.topCenter;
+      case 'topRight':
+        return Alignment.topRight;
+      case 'centerLeft':
+        return Alignment.centerLeft;
+      case 'centerRight':
+        return Alignment.centerRight;
+      case 'bottomLeft':
+        return Alignment.bottomLeft;
+      case 'bottomCenter':
+        return Alignment.bottomCenter;
+      case 'bottomRight':
+        return Alignment.bottomRight;
+      default:
+        return Alignment.center;
+    }
+  }
+
+  IconData _iconFromName(
+    String name,
+  ) {
+    switch (name) {
+      case 'home':
+        return Icons.home;
+      case 'settings':
+        return Icons.settings;
+      case 'menu':
+        return Icons.menu;
+      case 'search':
+        return Icons.search;
+      case 'add':
+        return Icons.add;
+      case 'delete':
+        return Icons.delete;
+      case 'edit':
+        return Icons.edit;
+      case 'favorite':
+        return Icons.favorite;
+      case 'heart':
+        return Icons.favorite;
+      case 'person':
+        return Icons.person;
+      case 'star':
+        return Icons.star;
+      case 'check':
+        return Icons.check;
+      case 'close':
+        return Icons.close;
+      case 'arrow_back':
+        return Icons.arrow_back;
+      case 'arrow_forward':
+        return Icons.arrow_forward;
+      case 'chevron_right':
+        return Icons.chevron_right;
+      case 'more_vert':
+        return Icons.more_vert;
+      case 'play_arrow':
+        return Icons.play_arrow;
+      case 'pause':
+        return Icons.pause;
+      case 'info':
+        return Icons.info;
+      case 'warning':
+        return Icons.warning;
+      default:
+        return Icons.widgets;
+    }
+  }
+}
+
+// ==================================================================
+// GRID PAINTER
+// ==================================================================
+
+class _GridPainter extends CustomPainter {
+  @override
+  void paint(
+    Canvas canvas,
+    Size size,
+  ) {
+    const step = 24.0;
+
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(
+        0.025,
+      )
+      ..strokeWidth = 1;
+
+    for (
+      double x = 0;
+      x <= size.width;
+      x += step
+    ) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        paint,
+      );
+    }
+
+    for (
+      double y = 0;
+      y <= size.height;
+      y += step
+    ) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(
+    covariant _GridPainter oldDelegate,
+  ) {
+    return false;
+  }
+}
