@@ -2411,6 +2411,7 @@ class _DesignCanvas
 
 class _DesignCanvasState
     extends State<_DesignCanvas> {
+static const Color _cyan = Color(0xFF00E5FF);
   final _DropRegistry _registry =
       _DropRegistry();
 
