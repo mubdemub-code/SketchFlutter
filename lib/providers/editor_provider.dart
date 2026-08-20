@@ -1731,12 +1731,12 @@ class EditorNotifier extends Notifier<EditorState> {
     );
 
     if (index == 0) {
-      bodyColumn.children.removeAt(0);
-      bodyColumn.children.insert(
+      bodyColumn.children!.removeAt(0);
+      bodyColumn.children!.insert(
         0,
         widget,
       );
-      bodyColumn.children.add(
+      bodyColumn.children!.add(
         bodyNode,
       );
     }
