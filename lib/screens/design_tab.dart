@@ -1885,11 +1885,8 @@ class _DesignTabState extends ConsumerState<DesignTab>
   Widget _buildFloatingInspector(
     WidgetNode selectedWidget,
   ) {
-    final bottomOffset =
-        -_inspectorDragOffset.clamp(
-          0,
-          320.0
-        );
+    final bottomOffset = -_inspectorDragOffset.clamp(0.0, 320.0);
+
 
     return Positioned(
       left: 0,
@@ -2183,34 +2180,30 @@ class _DesignTabState extends ConsumerState<DesignTab>
     WidgetNode original,
   ) {
     try {
-      final copy =
-          WidgetNode.create(
-        type: original.type,
-        properties: Map<String, dynamic>.from(original.properties ?? {}),
-        ),
-        children: [],
-      );
-
-            if (original.children != null && original.children!.isNotEmpty) {
+      // 1. On clone d'abord récursivement les enfants
+      final List<WidgetNode> clonedChildren = [];
+      if (original.children != null && original.children!.isNotEmpty) {
         for (final child in original.children!) {
           final clonedChild = _cloneNode(child);
-
           if (clonedChild != null) {
-            // Sécurité : on initialise la liste si elle est nulle avant d'y ajouter un élément
-            copy.children ??= <WidgetNode>[]; 
-            
-            copy.children!.add(
-              clonedChild,
-            );
+            clonedChildren.add(clonedChild);
           }
         }
       }
+
+      // 2. On instancie le nouveau WidgetNode avec ses propriétés et ses enfants clonés
+      final copy = WidgetNode.create(
+        type: original.type,
+        properties: Map<String, dynamic>.from(original.properties ?? {}),
+        children: clonedChildren,
+      );
 
       return copy;
     } catch (_) {
       return null;
     }
   }
+
 
   WidgetNode? _findParent(
     WidgetNode root,
