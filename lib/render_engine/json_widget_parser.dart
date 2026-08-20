@@ -1754,7 +1754,7 @@ class JsonWidgetParser {
           node.properties;
 
       if (properties is Map) {
-        return properties[key];
+        return properties?[key];
       }
     } catch (_) {}
 
